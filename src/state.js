@@ -4,21 +4,84 @@ import os from 'os'
 
 const STATE_DIR = path.join(os.homedir(), '.cron-burgundy')
 const STATE_FILE = path.join(STATE_DIR, 'state.json')
+const STATE_LOCK_FILE = path.join(STATE_DIR, 'state.lock')
+const LOCK_TIMEOUT_MS = 10000 // 10 seconds max wait for lock
+const LOCK_STALE_MS = 30000  // 30 seconds - consider lock stale
 
 /**
  * Ensure the state directory exists
  * @returns {Promise<void>}
  */
 async function ensureStateDir() {
+  await fs.mkdir(STATE_DIR, { recursive: true })
+}
+
+/**
+ * Atomically write data to a file using write-then-rename pattern
+ * @param {string} filePath
+ * @param {string} data
+ */
+async function atomicWriteFile(filePath, data) {
+  const dir = path.dirname(filePath)
+  const tempFile = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`)
+
   try {
-    await fs.mkdir(STATE_DIR, { recursive: true })
-  } catch (err) {
-    if (err.code !== 'EEXIST') throw err
+    await fs.writeFile(tempFile, data, 'utf8')
+    await fs.rename(tempFile, filePath)
+  } catch (error) {
+    await fs.unlink(tempFile).catch(() => {})
+    throw error
   }
 }
 
 /**
- * Get the current state object
+ * Acquire state lock with timeout
+ * @returns {Promise<boolean>}
+ */
+async function acquireStateLock() {
+  await ensureStateDir()
+  const startTime = Date.now()
+
+  while (Date.now() - startTime < LOCK_TIMEOUT_MS) {
+    try {
+      // Check for stale lock
+      try {
+        const stats = await fs.stat(STATE_LOCK_FILE)
+        if (Date.now() - stats.mtimeMs > LOCK_STALE_MS) {
+          await fs.unlink(STATE_LOCK_FILE).catch(() => {})
+        }
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err
+      }
+
+      // Try to acquire lock with exclusive flag
+      await fs.writeFile(STATE_LOCK_FILE, JSON.stringify({
+        pid: process.pid,
+        acquired: new Date().toISOString()
+      }), { flag: 'wx' })
+      return true
+    } catch (err) {
+      if (err.code === 'EEXIST') {
+        // Lock held by another process, wait and retry
+        await new Promise(resolve => setTimeout(resolve, 50))
+        continue
+      }
+      throw err
+    }
+  }
+
+  return false // Timeout
+}
+
+/**
+ * Release state lock
+ */
+async function releaseStateLock() {
+  await fs.unlink(STATE_LOCK_FILE).catch(() => {})
+}
+
+/**
+ * Get the current state object (no lock - for read-only access)
  * @returns {Promise<Record<string, string>>} Map of jobId -> last run ISO timestamp
  */
 export async function getState() {
@@ -32,13 +95,32 @@ export async function getState() {
 }
 
 /**
- * Save the state object
+ * Save the state object (internal - use updateState for safe writes)
  * @param {Record<string, string>} state - Map of jobId -> last run ISO timestamp
  * @returns {Promise<void>}
  */
-export async function saveState(state) {
+async function saveState(state) {
   await ensureStateDir()
-  await fs.writeFile(STATE_FILE, JSON.stringify(state, null, 2))
+  await atomicWriteFile(STATE_FILE, JSON.stringify(state, null, 2))
+}
+
+/**
+ * Safely update state with lock protection
+ * @param {(state: Record<string, string>) => Record<string, string>} updater
+ * @returns {Promise<void>}
+ */
+async function updateState(updater) {
+  if (!await acquireStateLock()) {
+    throw new Error('Failed to acquire state lock (timeout)')
+  }
+
+  try {
+    const state = await getState()
+    const newState = updater(state)
+    await saveState(newState)
+  } finally {
+    await releaseStateLock()
+  }
 }
 
 /**
@@ -58,9 +140,10 @@ export async function getLastRun(jobId) {
  * @returns {Promise<void>}
  */
 export async function markRun(jobId) {
-  const state = await getState()
-  state[jobId] = new Date().toISOString()
-  await saveState(state)
+  await updateState(state => {
+    state[jobId] = new Date().toISOString()
+    return state
+  })
 }
 
 export { STATE_DIR, STATE_FILE }
