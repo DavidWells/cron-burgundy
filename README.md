@@ -25,6 +25,8 @@ chmod +x ~/.wakeup
 
 # 3. Start sleepwatcher
 brew services start sleepwatcher
+# Note: sleepwatcher may request "Input Monitoring" permission - this is NOT
+# required for ~/.wakeup to work. You can safely deny it.
 
 # 4. Define your jobs in jobs.js
 
