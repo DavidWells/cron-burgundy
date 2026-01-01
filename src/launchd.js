@@ -9,6 +9,10 @@ const LABEL_PREFIX = 'com.cron-burgundy'
 const WAKE_CHECKER_LABEL = `${LABEL_PREFIX}.wakecheck`
 const LAUNCH_AGENTS_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents')
 
+// launchd limits
+const MIN_INTERVAL_SECONDS = 3
+const MIN_INTERVAL_MS = MIN_INTERVAL_SECONDS * 1000
+
 /**
  * Get the path to the node binary
  * @returns {string}
@@ -89,6 +93,9 @@ export function generateJobPlistConfig(job, projectPath) {
     const cronSchedule = normalizeSchedule(job.schedule)
     config.StartCalendarInterval = cronToCalendarInterval(cronSchedule)
   } else if (job.interval) {
+    if (job.interval < MIN_INTERVAL_MS) {
+      throw new Error(`Job "${job.id}": interval must be at least ${MIN_INTERVAL_SECONDS} seconds (${MIN_INTERVAL_MS}ms), got ${job.interval}ms`)
+    }
     config.StartInterval = Math.floor(job.interval / 1000) // Convert ms to seconds
   }
   
@@ -330,4 +337,4 @@ export async function listInstalledPlists() {
   }
 }
 
-export { LABEL_PREFIX, LAUNCH_AGENTS_DIR, getJobPlistPath, getWakeCheckerPlistPath }
+export { LABEL_PREFIX, LAUNCH_AGENTS_DIR, MIN_INTERVAL_MS, MIN_INTERVAL_SECONDS, getJobPlistPath, getWakeCheckerPlistPath }

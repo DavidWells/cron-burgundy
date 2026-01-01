@@ -1,4 +1,5 @@
 import { Cron } from 'croner'
+import cronstrue from 'cronstrue'
 import { normalizeSchedule } from './cron-parser.js'
 
 /**
@@ -107,6 +108,19 @@ export function getNextRun(job, lastRun) {
 }
 
 /**
+ * Get human-readable description of a cron expression
+ * @param {string} cronExpr
+ * @returns {string}
+ */
+function cronToHuman(cronExpr) {
+  try {
+    return cronstrue.toString(cronExpr, { use24HourTimeFormat: false })
+  } catch {
+    return cronExpr
+  }
+}
+
+/**
  * Get the display schedule string (shows both human and cron if different)
  * @param {Job} job
  * @returns {string}
@@ -117,12 +131,21 @@ export function getDisplaySchedule(job) {
   }
   if (job.schedule) {
     const cronSchedule = getCronSchedule(job)
-    if (cronSchedule !== job.schedule) {
-      return `${job.schedule} (${cronSchedule})`
-    }
-    return job.schedule
+    const humanDesc = cronToHuman(cronSchedule)
+    return `${cronSchedule} (${humanDesc})`
   }
   return 'unknown'
+}
+
+/**
+ * Pluralize a word based on count
+ * @param {number} count
+ * @param {string} singular
+ * @param {string} plural
+ * @returns {string}
+ */
+function pluralize(count, singular, plural) {
+  return count === 1 ? singular : plural
 }
 
 /**
@@ -135,9 +158,9 @@ export function formatInterval(ms) {
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
   const days = Math.floor(hours / 24)
-  
-  if (days > 0) return `${days}d`
-  if (hours > 0) return `${hours}h`
-  if (minutes > 0) return `${minutes}m`
-  return `${seconds}s`
+
+  if (days > 0) return `${days} ${pluralize(days, 'day', 'days')}`
+  if (hours > 0) return `${hours} ${pluralize(hours, 'hour', 'hours')}`
+  if (minutes > 0) return `${minutes} ${pluralize(minutes, 'minute', 'minutes')}`
+  return `${seconds} ${pluralize(seconds, 'second', 'seconds')}`
 }

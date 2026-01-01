@@ -72,6 +72,17 @@ function notify(title, message) {
  * @type {import('./src/scheduler.js').Job[]}
  */
 export const jobs = [
+  // Test 3-second interval
+  {
+    id: 'speak-3-seconds',
+    description: 'Says "3 seconds" every 3 seconds',
+    enabled: false,
+    interval: 3 * 1000,  // 3 seconds
+    run: async (logger) => {
+      speak('3 seconds')
+    }
+  },
+
   // Verification job - runs every minute, plays sound + notification
   {
     id: 'verify-running',

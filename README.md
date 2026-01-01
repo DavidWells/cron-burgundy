@@ -79,30 +79,63 @@ export const jobs = [
 ### Human-Readable (Recommended)
 
 ```javascript
-// Intervals
+// Basic intervals
 schedule: 'every minute'
-schedule: 'every 5 minutes'
-schedule: 'every 2 hours'
+schedule: 'every hour'
+schedule: 'every day'
 schedule: 'hourly'
 schedule: 'daily'
 schedule: 'weekly'
 schedule: 'monthly'
+schedule: 'yearly'
+
+// Custom intervals
+schedule: 'every 5 minutes'
+schedule: 'every 2 hours'
+schedule: 'every 3 days'
+schedule: 'every 2 weeks'
+schedule: 'every 6 months'
+
+// Shorthand intervals (without "every")
+schedule: '5 minutes'
+schedule: '2 hours'
+schedule: '1 week'
 
 // Specific times
 schedule: 'at 9:30'
 schedule: 'at 2:00 pm'
+schedule: 'at 14:15'
 schedule: 'noon'
 schedule: 'midnight'
-schedule: 'morning'      // 9am
-schedule: 'evening'      // 6pm
+schedule: 'morning'       // 9am
+schedule: 'evening'       // 6pm
 
 // Days of week
+schedule: 'monday'
+schedule: 'friday'
 schedule: 'weekdays'
 schedule: 'weekends'
-schedule: 'monday'
 schedule: 'on monday at 9:00'
+schedule: 'on friday at 5:30 pm'
 schedule: 'on monday,wednesday,friday at 8:00 am'
+schedule: 'on tuesday,thursday at 2:30 pm'
 schedule: 'on weekdays at 8:30 am'
+schedule: 'on weekends at 10:00 am'
+
+// Day of month
+schedule: 'on 1st of month at 9:00'
+schedule: 'on 15th of month at 12:00'
+schedule: 'on 31st of month at 2:00 pm'
+schedule: 'first day of month'
+schedule: 'middle of month'
+
+// Business patterns
+schedule: 'business hours'   // 9am-5pm weekdays
+
+// Special
+schedule: 'never'            // Feb 30th (never runs)
+schedule: 'reboot'           // @reboot
+schedule: 'startup'          // @reboot
 ```
 
 ### Standard Cron
@@ -112,6 +145,8 @@ schedule: '0 9 * * *'      // 9am daily
 schedule: '*/5 * * * *'    // Every 5 minutes
 schedule: '0 0 * * 0'      // Midnight on Sundays
 schedule: '30 14 1 * *'    // 2:30pm on 1st of month
+schedule: '0 9-17 * * 1-5' // Every hour 9am-5pm weekdays
+schedule: '15 2,14 * * *'  // 2:15am and 2:15pm daily
 ```
 
 ### Interval (milliseconds)
