@@ -22,10 +22,27 @@ const sounds = [
  * @param {string} sound - Sound name (Ping, Pop, Blow, Glass, etc.)
  */
 function playSound(sound = 'Ping') {
+  const isSystemSound = sounds.includes(sound)
+  if (isSystemSound) {
+    try {
+      execSync(`afplay /System/Library/Sounds/${sound}.aiff`)
+    } catch (err) {
+      console.log('Could not play sound:', err.message)
+    }
+  } else {
+    try {
+      execSync(`say "${sound}"`)
+    } catch (err) {
+      console.log('Could not speak:', err.message)
+    }
+  }
+}
+
+function speak(text = 'Hello, world!') {
   try {
-    execSync(`afplay /System/Library/Sounds/${sound}.aiff`)
+    execSync(`say "${text}"`)
   } catch (err) {
-    console.log('Could not play sound:', err.message)
+    console.log('Could not speak:', err.message)
   }
 }
 
@@ -58,6 +75,7 @@ export const jobs = [
   // Verification job - runs every minute, plays sound + notification
   {
     id: 'verify-running',
+    description: 'Plays sound + notification to verify cron is running',
     enabled: false,
     interval: 60 * 1000,  // every 1 minute
     run: async (logger) => {
@@ -68,9 +86,20 @@ export const jobs = [
     }
   },
 
+  // Speak at 1pm every day
+  {
+    id: 'speak-at-2pm',
+    description: 'Announces the time at 2pm daily',
+    schedule: 'at 02:00 pm',  // 2pm
+    run: async (logger) => {
+      speak('It is 2pm')
+    }
+  },
+
   // Example: Daily backup at 9am
   {
     id: 'daily-backup',
+    description: 'Runs daily backup at 9am',
     schedule: '0 9 * * *',
     run: async (logger) => {
       playSound('Frog')
@@ -83,6 +112,7 @@ export const jobs = [
   // Example: Hourly sync using interval
   {
     id: 'hourly-sync',
+    description: 'Syncs data every hour',
     interval: 60 * 60 * 1000,  // 1 hour in ms
     run: async (logger) => {
       await logger.log('Starting hourly sync...')
@@ -94,6 +124,7 @@ export const jobs = [
   // Example: Weekly report on Sundays at 8am (DISABLED)
   {
     id: 'weekly-report',
+    description: 'Generates weekly report on Sundays',
     enabled: false,
     schedule: '0 8 * * 0',
     run: async (logger) => {

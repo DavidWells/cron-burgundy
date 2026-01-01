@@ -5,7 +5,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { runAllDue, runJobNow, checkMissed } from '../src/runner.js'
 import { getState } from '../src/state.js'
-import { getIntervalMs, getNextRun, formatInterval, isEnabled } from '../src/scheduler.js'
+import { getIntervalMs, getNextRun, formatInterval, isEnabled, getDisplaySchedule } from '../src/scheduler.js'
 import { sync, uninstallAll, listInstalledPlists } from '../src/launchd.js'
 import { spawn } from 'child_process'
 import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
@@ -87,12 +87,14 @@ program
         const lastRunStr = state[job.id]
         const lastRun = lastRunStr ? new Date(lastRunStr) : null
         const nextRun = getNextRun(job, lastRun)
-        const interval = getIntervalMs(job)
         const status = isEnabled(job) ? '✓' : '✗'
         
         console.log(`${status} ${job.id}`)
+        if (job.description) {
+          console.log(`   ${job.description}`)
+        }
         console.log(`   Status:   ${isEnabled(job) ? 'enabled' : 'DISABLED'}`)
-        console.log(`   Schedule: ${job.schedule || `every ${formatInterval(interval)}`}`)
+        console.log(`   Schedule: ${getDisplaySchedule(job)}`)
         console.log(`   Last run: ${lastRun ? lastRun.toLocaleString() : 'never'}`)
         if (isEnabled(job)) {
           console.log(`   Next due: ${nextRun ? nextRun.toLocaleString() : 'now'}`)

@@ -1,4 +1,5 @@
 import { Cron } from 'croner'
+import { normalizeSchedule } from './cron-parser.js'
 
 /**
  * @typedef {{ log: (msg: string) => Promise<void> }} JobLogger
@@ -7,11 +8,22 @@ import { Cron } from 'croner'
 /**
  * @typedef {Object} Job
  * @property {string} id - Unique job identifier
- * @property {string} [schedule] - Cron expression (e.g., "0 9 * * *")
+ * @property {string} [description] - Human-readable description of what the job does
+ * @property {string} [schedule] - Cron expression or human-readable schedule (e.g., "0 9 * * *", "every 5 minutes", "weekdays")
  * @property {number} [interval] - Interval in milliseconds
  * @property {boolean} [enabled] - Whether job is enabled (default: true)
  * @property {(logger: JobLogger) => Promise<void>} run - Job function to execute
  */
+
+/**
+ * Get the normalized cron schedule for a job
+ * @param {Job} job
+ * @returns {string|undefined}
+ */
+function getCronSchedule(job) {
+  if (!job.schedule) return undefined
+  return normalizeSchedule(job.schedule)
+}
 
 /**
  * Check if a job is enabled
@@ -33,9 +45,10 @@ export function getIntervalMs(job) {
     return job.interval
   }
   
-  if (job.schedule) {
+  const cronSchedule = getCronSchedule(job)
+  if (cronSchedule) {
     // For cron, calculate typical interval between runs
-    const cron = new Cron(job.schedule)
+    const cron = new Cron(cronSchedule)
     const next1 = cron.nextRun()
     const next2 = cron.nextRuns(2)[1]
     
@@ -79,8 +92,9 @@ export function shouldRun(job, lastRun) {
  * @returns {Date|null}
  */
 export function getNextRun(job, lastRun) {
-  if (job.schedule) {
-    const cron = new Cron(job.schedule)
+  const cronSchedule = getCronSchedule(job)
+  if (cronSchedule) {
+    const cron = new Cron(cronSchedule)
     return cron.nextRun()
   }
   
@@ -90,6 +104,25 @@ export function getNextRun(job, lastRun) {
   }
   
   return null
+}
+
+/**
+ * Get the display schedule string (shows both human and cron if different)
+ * @param {Job} job
+ * @returns {string}
+ */
+export function getDisplaySchedule(job) {
+  if (job.interval) {
+    return `every ${formatInterval(job.interval)}`
+  }
+  if (job.schedule) {
+    const cronSchedule = getCronSchedule(job)
+    if (cronSchedule !== job.schedule) {
+      return `${job.schedule} (${cronSchedule})`
+    }
+    return job.schedule
+  }
+  return 'unknown'
 }
 
 /**

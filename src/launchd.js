@@ -3,7 +3,7 @@ import path from 'path'
 import os from 'os'
 import { execSync } from 'child_process'
 import plist from 'plist'
-import { Cron } from 'croner'
+import { normalizeSchedule } from './cron-parser.js'
 
 const LABEL_PREFIX = 'com.cron-burgundy'
 const WAKE_CHECKER_LABEL = `${LABEL_PREFIX}.wakecheck`
@@ -86,7 +86,8 @@ export function generateJobPlistConfig(job, projectPath) {
   
   // Add schedule based on job type
   if (job.schedule) {
-    config.StartCalendarInterval = cronToCalendarInterval(job.schedule)
+    const cronSchedule = normalizeSchedule(job.schedule)
+    config.StartCalendarInterval = cronToCalendarInterval(cronSchedule)
   } else if (job.interval) {
     config.StartInterval = Math.floor(job.interval / 1000) // Convert ms to seconds
   }
@@ -145,38 +146,56 @@ function unloadPlist(plistPath) {
  * Install a single job's plist
  * @param {import('./scheduler.js').Job} job
  * @param {string} projectPath
+ * @returns {Promise<'installed'|'unchanged'>}
  */
 export async function installJob(job, projectPath) {
   await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
-  
+
   const plistPath = getJobPlistPath(job.id)
   const config = generateJobPlistConfig(job, projectPath)
   const xml = plist.build(config)
-  
+
+  // Check if plist already exists and is identical
+  try {
+    const existing = await fs.readFile(plistPath, 'utf8')
+    if (existing === xml) {
+      return 'unchanged'
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err
+  }
+
   // Unload first if exists
   unloadPlist(plistPath)
-  
+
   // Write and load
   await fs.writeFile(plistPath, xml)
   loadPlist(plistPath)
-  
-  console.log(`  ✓ Installed: ${job.id}`)
+
+  return 'installed'
 }
 
 /**
  * Uninstall a single job's plist
  * @param {string} jobId
+ * @param {{ alwaysPrint?: boolean, description?: string }} [options]
  */
-export async function uninstallJob(jobId) {
+export async function uninstallJob(jobId, options = {}) {
+  const { alwaysPrint = false, description } = options
   const plistPath = getJobPlistPath(jobId)
-  
+  const desc = description ? ` - ${description}` : ''
+
   unloadPlist(plistPath)
-  
+
   try {
     await fs.unlink(plistPath)
-    console.log(`  ✗ Removed: ${jobId}`)
+    console.log(`  ✗ ${jobId}${desc}`)
   } catch (err) {
-    if (err.code !== 'ENOENT') throw err
+    if (err.code === 'ENOENT') {
+      if (alwaysPrint) console.log(`  ✗ ${jobId}${desc}`)
+    } else {
+      throw err
+    }
   }
 }
 
@@ -221,29 +240,64 @@ export async function uninstallWakeChecker() {
  */
 export async function sync(jobs, projectPath) {
   const { isEnabled } = await import('./scheduler.js')
-  
+
   console.log('\n=== Syncing jobs with launchd ===\n')
-  
+
   const enabled = jobs.filter(j => isEnabled(j))
   const disabled = jobs.filter(j => !isEnabled(j))
-  
+  const allJobIds = new Set(jobs.map(j => j.id))
+
   // Install enabled jobs
-  if (enabled.length > 0) {
-    console.log('Installing enabled jobs:')
-    for (const job of enabled) {
-      await installJob(job, projectPath)
+  const installed = []
+  const unchanged = []
+
+  for (const job of enabled) {
+    const result = await installJob(job, projectPath)
+    if (result === 'installed') {
+      installed.push(job)
+    } else {
+      unchanged.push(job)
     }
   }
-  
+
+  if (enabled.length > 0) {
+    console.log('Installed jobs:')
+    for (const job of enabled) {
+      const desc = job.description ? ` - ${job.description}` : ''
+      const status = unchanged.includes(job) ? ' (unchanged)' : ''
+      console.log(`  ✓ ${job.id}${desc}${status}`)
+    }
+  }
+
   // Remove disabled jobs
   if (disabled.length > 0) {
-    console.log('\nRemoving disabled jobs:')
+    console.log('\nDisabled jobs:')
     for (const job of disabled) {
-      await uninstallJob(job.id)
+      await uninstallJob(job.id, { alwaysPrint: true, description: job.description })
     }
   }
-  
-  console.log(`\n✓ Sync complete: ${enabled.length} enabled, ${disabled.length} disabled`)
+
+  // Remove orphaned plists (jobs that no longer exist in jobs.js)
+  const installedPlists = await listInstalledPlists()
+  const jobPlistPrefix = `${LABEL_PREFIX}.job.`
+  const orphaned = []
+
+  for (const plistFile of installedPlists) {
+    if (!plistFile.startsWith(jobPlistPrefix)) continue
+    const jobId = plistFile.replace(jobPlistPrefix, '').replace('.plist', '')
+    if (!allJobIds.has(jobId)) {
+      orphaned.push(jobId)
+    }
+  }
+
+  if (orphaned.length > 0) {
+    console.log('\nRemoving orphaned jobs:')
+    for (const jobId of orphaned) {
+      await uninstallJob(jobId)
+    }
+  }
+
+  console.log(`\n✓ Sync complete: ${installed.length} installed, ${unchanged.length} unchanged, ${disabled.length} disabled, ${orphaned.length} orphaned`)
   console.log('\nNote: Wake detection handled by sleepwatcher (~/.wakeup)')
 }
 

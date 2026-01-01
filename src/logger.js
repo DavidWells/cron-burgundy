@@ -57,7 +57,6 @@ export async function logRunnerSeparator() {
  * @param {string} message
  */
 export async function logJob(jobId, message) {
-  console.log(`[${jobId}] ${message}`)
   const jobLogPath = path.join(JOBS_LOG_DIR, `${jobId}.log`)
   await appendLog(jobLogPath, message)
 }
