@@ -1,0 +1,279 @@
+import fs from 'fs/promises'
+import path from 'path'
+import os from 'os'
+import { execSync } from 'child_process'
+import plist from 'plist'
+import { Cron } from 'croner'
+
+const LABEL_PREFIX = 'com.cron-burgundy'
+const WAKE_CHECKER_LABEL = `${LABEL_PREFIX}.wakecheck`
+const LAUNCH_AGENTS_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents')
+
+/**
+ * Get the path to the node binary
+ * @returns {string}
+ */
+function getNodePath() {
+  try {
+    return execSync('which node', { encoding: 'utf8' }).trim()
+  } catch {
+    return '/usr/local/bin/node'
+  }
+}
+
+/**
+ * Get plist path for a job
+ * @param {string} jobId
+ * @returns {string}
+ */
+function getJobPlistPath(jobId) {
+  return path.join(LAUNCH_AGENTS_DIR, `${LABEL_PREFIX}.job.${jobId}.plist`)
+}
+
+/**
+ * Get plist path for wake checker
+ * @returns {string}
+ */
+function getWakeCheckerPlistPath() {
+  return path.join(LAUNCH_AGENTS_DIR, `${WAKE_CHECKER_LABEL}.plist`)
+}
+
+/**
+ * Parse cron expression to StartCalendarInterval format
+ * @param {string} cronExpr - Cron expression (e.g., "0 9 * * *")
+ * @returns {Object|Object[]}
+ */
+function cronToCalendarInterval(cronExpr) {
+  // Parse cron: minute hour dayOfMonth month dayOfWeek
+  const parts = cronExpr.trim().split(/\s+/)
+  if (parts.length !== 5) {
+    throw new Error(`Invalid cron expression: ${cronExpr}`)
+  }
+  
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts
+  const interval = {}
+  
+  if (minute !== '*') interval.Minute = parseInt(minute, 10)
+  if (hour !== '*') interval.Hour = parseInt(hour, 10)
+  if (dayOfMonth !== '*') interval.Day = parseInt(dayOfMonth, 10)
+  if (month !== '*') interval.Month = parseInt(month, 10)
+  if (dayOfWeek !== '*') interval.Weekday = parseInt(dayOfWeek, 10)
+  
+  return interval
+}
+
+/**
+ * Generate plist config for a specific job
+ * @param {import('./scheduler.js').Job} job
+ * @param {string} projectPath
+ * @returns {Object}
+ */
+export function generateJobPlistConfig(job, projectPath) {
+  const nodePath = getNodePath()
+  const cliPath = path.join(projectPath, 'bin', 'cli.js')
+  const logDir = path.join(os.homedir(), '.cron-burgundy')
+  
+  const config = {
+    Label: `${LABEL_PREFIX}.job.${job.id}`,
+    ProgramArguments: [nodePath, cliPath, 'run', job.id],
+    StandardOutPath: path.join(logDir, 'runner.log'),
+    StandardErrorPath: path.join(logDir, 'runner.error.log'),
+    WorkingDirectory: projectPath,
+    EnvironmentVariables: {
+      PATH: '/usr/local/bin:/usr/bin:/bin'
+    }
+  }
+  
+  // Add schedule based on job type
+  if (job.schedule) {
+    config.StartCalendarInterval = cronToCalendarInterval(job.schedule)
+  } else if (job.interval) {
+    config.StartInterval = Math.floor(job.interval / 1000) // Convert ms to seconds
+  }
+  
+  return config
+}
+
+/**
+ * Generate plist config for wake checker (runs on login/wake to catch missed jobs)
+ * @param {string} projectPath
+ * @returns {Object}
+ */
+export function generateWakeCheckerPlistConfig(projectPath) {
+  const nodePath = getNodePath()
+  const cliPath = path.join(projectPath, 'bin', 'cli.js')
+  const logDir = path.join(os.homedir(), '.cron-burgundy')
+  
+  return {
+    Label: WAKE_CHECKER_LABEL,
+    ProgramArguments: [nodePath, cliPath, 'check-missed'],
+    RunAtLoad: true,  // Run on login/wake
+    StandardOutPath: path.join(logDir, 'runner.log'),
+    StandardErrorPath: path.join(logDir, 'runner.error.log'),
+    WorkingDirectory: projectPath,
+    EnvironmentVariables: {
+      PATH: '/usr/local/bin:/usr/bin:/bin'
+    }
+  }
+}
+
+/**
+ * Load a plist into launchd
+ * @param {string} plistPath
+ */
+function loadPlist(plistPath) {
+  try {
+    execSync(`launchctl load "${plistPath}"`, { stdio: 'ignore' })
+  } catch {
+    // May already be loaded
+  }
+}
+
+/**
+ * Unload a plist from launchd
+ * @param {string} plistPath
+ */
+function unloadPlist(plistPath) {
+  try {
+    execSync(`launchctl unload "${plistPath}"`, { stdio: 'ignore' })
+  } catch {
+    // May not be loaded
+  }
+}
+
+/**
+ * Install a single job's plist
+ * @param {import('./scheduler.js').Job} job
+ * @param {string} projectPath
+ */
+export async function installJob(job, projectPath) {
+  await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
+  
+  const plistPath = getJobPlistPath(job.id)
+  const config = generateJobPlistConfig(job, projectPath)
+  const xml = plist.build(config)
+  
+  // Unload first if exists
+  unloadPlist(plistPath)
+  
+  // Write and load
+  await fs.writeFile(plistPath, xml)
+  loadPlist(plistPath)
+  
+  console.log(`  ✓ Installed: ${job.id}`)
+}
+
+/**
+ * Uninstall a single job's plist
+ * @param {string} jobId
+ */
+export async function uninstallJob(jobId) {
+  const plistPath = getJobPlistPath(jobId)
+  
+  unloadPlist(plistPath)
+  
+  try {
+    await fs.unlink(plistPath)
+    console.log(`  ✗ Removed: ${jobId}`)
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err
+  }
+}
+
+/**
+ * Install the wake checker plist
+ * @param {string} projectPath
+ */
+export async function installWakeChecker(projectPath) {
+  await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
+  
+  const plistPath = getWakeCheckerPlistPath()
+  const config = generateWakeCheckerPlistConfig(projectPath)
+  const xml = plist.build(config)
+  
+  unloadPlist(plistPath)
+  await fs.writeFile(plistPath, xml)
+  loadPlist(plistPath)
+  
+  console.log(`  ✓ Installed: wake-checker (runs on login/wake)`)
+}
+
+/**
+ * Uninstall the wake checker plist
+ */
+export async function uninstallWakeChecker() {
+  const plistPath = getWakeCheckerPlistPath()
+  
+  unloadPlist(plistPath)
+  
+  try {
+    await fs.unlink(plistPath)
+    console.log(`  ✗ Removed: wake-checker`)
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err
+  }
+}
+
+/**
+ * Sync jobs with launchd - install enabled, remove disabled
+ * @param {import('./scheduler.js').Job[]} jobs
+ * @param {string} projectPath
+ */
+export async function sync(jobs, projectPath) {
+  const { isEnabled } = await import('./scheduler.js')
+  
+  console.log('\n=== Syncing jobs with launchd ===\n')
+  
+  const enabled = jobs.filter(j => isEnabled(j))
+  const disabled = jobs.filter(j => !isEnabled(j))
+  
+  // Install enabled jobs
+  if (enabled.length > 0) {
+    console.log('Installing enabled jobs:')
+    for (const job of enabled) {
+      await installJob(job, projectPath)
+    }
+  }
+  
+  // Remove disabled jobs
+  if (disabled.length > 0) {
+    console.log('\nRemoving disabled jobs:')
+    for (const job of disabled) {
+      await uninstallJob(job.id)
+    }
+  }
+  
+  console.log(`\n✓ Sync complete: ${enabled.length} enabled, ${disabled.length} disabled`)
+  console.log('\nNote: Wake detection handled by sleepwatcher (~/.wakeup)')
+}
+
+/**
+ * Uninstall all plists
+ * @param {import('./scheduler.js').Job[]} jobs
+ */
+export async function uninstallAll(jobs) {
+  console.log('\n=== Uninstalling all jobs ===\n')
+  
+  for (const job of jobs) {
+    await uninstallJob(job.id)
+  }
+  
+  await uninstallWakeChecker()
+  
+  console.log('\n✓ All jobs uninstalled')
+}
+
+/**
+ * List all installed cron-burgundy plists
+ * @returns {Promise<string[]>}
+ */
+export async function listInstalledPlists() {
+  try {
+    const files = await fs.readdir(LAUNCH_AGENTS_DIR)
+    return files.filter(f => f.startsWith(LABEL_PREFIX))
+  } catch {
+    return []
+  }
+}
+
+export { LABEL_PREFIX, LAUNCH_AGENTS_DIR, getJobPlistPath, getWakeCheckerPlistPath }

@@ -1,12 +1,28 @@
 {
   "name": "cron-burgundy",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Simple macOS cron manager with missed job recovery",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "cron-burgundy": "./bin/cli.js"
+  },
   "scripts": {
+    "start": "node src/runner.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": [
+    "cron",
+    "macos",
+    "launchd",
+    "scheduler"
+  ],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "@davidwells/graceful-exit": "^0.0.2",
+    "commander": "^14.0.2",
+    "croner": "^9.1.0",
+    "plist": "^3.1.0"
+  }
 }
