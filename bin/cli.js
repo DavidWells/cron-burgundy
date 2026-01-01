@@ -180,9 +180,19 @@ logsCmd
       : RUNNER_LOG
     
     if (options.tail) {
+      // Show job schedule info if tailing a specific job
+      if (jobId) {
+        try {
+          const { jobs } = await import(path.join(PROJECT_ROOT, 'jobs.js'))
+          const job = jobs.find(j => j.id === jobId)
+          if (job) {
+            console.log(`\nSchedule: ${getDisplaySchedule(job)}`)
+          }
+        } catch {}
+      }
       console.log(`\n=== Tailing: ${logPath} ===\n`)
       console.log('(Press Ctrl+C to stop)\n')
-      const tail = spawn('tail', ['-f', '-n', String(lines), logPath], { stdio: 'inherit' })
+      const tail = spawn('tail', ['-f', '-n', '0', logPath], { stdio: 'inherit' })
       tail.on('error', (err) => {
         console.error(`Error: ${err.message}`)
         process.exit(1)

@@ -2,6 +2,7 @@ import { getLastRun, markRun } from './state.js'
 import { shouldRun, isEnabled } from './scheduler.js'
 import { logRunner, logJob, createJobLogger, logRunnerSeparator, logJobSeparator } from './logger.js'
 import { acquireLock, releaseLock } from './lock.js'
+import { utils } from './actions/index.js'
 
 /**
  * @typedef {import('./scheduler.js').Job} Job
@@ -29,9 +30,9 @@ async function runIfDue(job) {
   const start = Date.now()
   
   try {
-    // Pass logger to job so it can write to its own log file
+    // Pass logger and utils to job
     const logger = createJobLogger(job.id)
-    await job.run(logger)
+    await job.run({ logger, utils })
     await markRun(job.id)
     const duration = Date.now() - start
     await logRunner(`[${job.id}] Completed in ${duration}ms`)
@@ -102,8 +103,8 @@ export async function runJobNow(job) {
     
     const start = Date.now()
     const logger = createJobLogger(job.id)
-    
-    await job.run(logger)
+
+    await job.run({ logger, utils })
     await markRun(job.id)
     const duration = Date.now() - start
     await logRunner(`[${job.id}] Completed in ${duration}ms`)
@@ -151,8 +152,8 @@ export async function checkMissed(jobs) {
         
         const start = Date.now()
         const logger = createJobLogger(job.id)
-        
-        await job.run(logger)
+
+        await job.run({ logger, utils })
         await markRun(job.id)
         const duration = Date.now() - start
         await logRunner(`[${job.id}] Completed in ${duration}ms`)

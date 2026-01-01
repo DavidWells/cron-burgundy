@@ -7,13 +7,19 @@ import { normalizeSchedule } from './cron-parser.js'
  */
 
 /**
+ * @typedef {Object} JobContext
+ * @property {JobLogger} logger - Logger for this job
+ * @property {import('./actions/index.js').utils} utils - Utility functions (speak, playSound, notify)
+ */
+
+/**
  * @typedef {Object} Job
  * @property {string} id - Unique job identifier
  * @property {string} [description] - Human-readable description of what the job does
  * @property {string} [schedule] - Cron expression or human-readable schedule (e.g., "0 9 * * *", "every 5 minutes", "weekdays")
  * @property {number} [interval] - Interval in milliseconds
  * @property {boolean} [enabled] - Whether job is enabled (default: true)
- * @property {(logger: JobLogger) => Promise<void>} run - Job function to execute
+ * @property {(ctx: JobContext) => Promise<void>} run - Job function to execute
  */
 
 /**

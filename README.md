@@ -36,6 +36,14 @@ node bin/cli.js sync
 # Done! Jobs run automatically
 ```
 
+### Focus Mode
+
+If using `utils.notify()` and macOS Focus Mode is enabled, add **Script Editor** to allowed apps:
+
+System Settings → Focus → [Your Focus] → Allowed Apps → Add → Script Editor
+
+(`playSound()` and `speak()` work regardless of Focus Mode)
+
 ## CLI Commands
 
 ```bash
