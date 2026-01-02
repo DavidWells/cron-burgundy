@@ -18,4 +18,4 @@
 export { runAllDue } from './runner.js'
 export { getState, getLastRun, markRun } from './state.js'
 export { shouldRun, getIntervalMs, getNextRun, formatInterval } from './scheduler.js'
-export { install, uninstall, isInstalled, generatePlistXml } from './launchd.js'
+export { installJob, uninstallJob, sync, uninstallAll, listInstalledPlists, generateJobPlistConfig } from './launchd.js'

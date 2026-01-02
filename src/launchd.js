@@ -388,4 +388,4 @@ export async function listInstalledPlists() {
   }
 }
 
-export { LABEL_PREFIX, LAUNCH_AGENTS_DIR, MIN_INTERVAL_MS, MIN_INTERVAL_SECONDS, getJobPlistPath, getWakeCheckerPlistPath }
+export { LABEL_PREFIX, LAUNCH_AGENTS_DIR, MIN_INTERVAL_MS, MIN_INTERVAL_SECONDS, getJobPlistPath, getWakeCheckerPlistPath, expandCronField, cronToCalendarInterval }
