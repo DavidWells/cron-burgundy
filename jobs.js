@@ -1,10 +1,16 @@
+import { execSync } from 'child_process'
+import { mkdirSync, writeFileSync } from 'fs'
+import { homedir } from 'os'
+import { join } from 'path'
+import { tweetGen } from '../../../dotfiles/.claude/exec/agents/tweet-gen.js'
+
 /**
  * Define all your cron jobs here.
  *
  * Each job needs:
  * - id: unique identifier
  * - schedule: cron expression (e.g., "0 9 * * *") OR interval in ms
- * - run: async function that receives { logger, utils }
+ * - run: async function that receives { logger, utils, lastRun }
  *
  * Available utils:
  * - utils.speak(text) - Text-to-speech
@@ -16,6 +22,61 @@
  * @type {import('./src/scheduler.js').Job[]}
  */
 export const jobs = [
+  // Capture window history hourly 6am-midnight
+  {
+    id: 'window-history',
+    description: 'Captures window focus history since last run',
+    schedule: '0 6-23 * * *',  // every hour on the hour, 6am-11pm
+    run: async ({ logger, utils,lastRun }) => {
+      utils.playSound('Funk')
+      const now = new Date()
+      const sinceDate = lastRun || new Date(now.getTime() - 60 * 60 * 1000) // default: 1 hour ago
+      const sinceISO = sinceDate.toISOString()
+
+      await logger.log(`Capturing history since ${sinceISO}`)
+
+      try {
+        const output = execSync(
+          `${homedir()}/dotfiles/.zsh/functions/yabai-query-history.sh since ${sinceISO}`,
+          { encoding: 'utf8', shell: '/bin/zsh' }
+        )
+
+        // Skip if no data rows (header + columns + separator = 3 lines)
+        const lines = output.trim().split('\n')
+        if (lines.length <= 3) {
+          await logger.log('No items to save')
+          return
+        }
+
+        // Write to /Users/david/History/YYYY-MM-DD/HH AM|PM.log
+        const dateStr = now.toISOString().slice(0, 10) // YYYY-MM-DD
+        const hours = now.getHours()
+        const hour12 = ((hours % 12) || 12).toString().padStart(2, '0')
+        const ampm = hours < 12 ? 'AM' : 'PM'
+        const dir = join(homedir(), 'History', dateStr)
+        const file = join(dir, `${hour12}${ampm}.log`)
+
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(file, output)
+
+        await logger.log(`Wrote ${lines.length - 3} items to ${file}`)
+
+        // Generate tweets from history
+        const tweetFile = join(dir, `${hour12}${ampm}-tweets.md`)
+        await logger.log(`Generating tweets to ${tweetFile}`)
+        await tweetGen({
+          idea: `Read our history from the past hour and help us with some tweets\n\n${output}`,
+          count: 10,
+          output: tweetFile,
+          openOnComplete: false
+        })
+      } catch (err) {
+        await logger.log(`Error: ${err.message}`)
+        throw err
+      }
+    }
+  },
+
   // Test 3-second interval
   {
     id: 'speak-3-seconds',
@@ -31,7 +92,7 @@ export const jobs = [
   {
     id: 'verify-running',
     description: 'Plays sound + notification to verify cron is running',
-    enabled: true,
+    enabled: false,
     interval: 60 * 1000,  // every 1 minute
     run: async ({ logger, utils }) => {
       await logger.log('Verification job running!')

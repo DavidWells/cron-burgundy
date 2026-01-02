@@ -43,6 +43,31 @@ function getWakeCheckerPlistPath() {
 }
 
 /**
+ * Expand a cron field value into an array of integers
+ * Handles: *, single values, ranges (6-12), lists (1,3,5)
+ * @param {string} field
+ * @returns {number[]|null} null means wildcard (*)
+ */
+function expandCronField(field) {
+  if (field === '*') return null
+
+  const values = new Set()
+
+  for (const part of field.split(',')) {
+    if (part.includes('-')) {
+      const [start, end] = part.split('-').map(n => parseInt(n, 10))
+      for (let i = start; i <= end; i++) {
+        values.add(i)
+      }
+    } else {
+      values.add(parseInt(part, 10))
+    }
+  }
+
+  return [...values].sort((a, b) => a - b)
+}
+
+/**
  * Parse cron expression to StartCalendarInterval format
  * @param {string} cronExpr - Cron expression (e.g., "0 9 * * *")
  * @returns {Object|Object[]}
@@ -53,17 +78,43 @@ function cronToCalendarInterval(cronExpr) {
   if (parts.length !== 5) {
     throw new Error(`Invalid cron expression: ${cronExpr}`)
   }
-  
+
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts
-  const interval = {}
-  
-  if (minute !== '*') interval.Minute = parseInt(minute, 10)
-  if (hour !== '*') interval.Hour = parseInt(hour, 10)
-  if (dayOfMonth !== '*') interval.Day = parseInt(dayOfMonth, 10)
-  if (month !== '*') interval.Month = parseInt(month, 10)
-  if (dayOfWeek !== '*') interval.Weekday = parseInt(dayOfWeek, 10)
-  
-  return interval
+
+  const minutes = expandCronField(minute)
+  const hours = expandCronField(hour)
+  const days = expandCronField(dayOfMonth)
+  const months = expandCronField(month)
+  const weekdays = expandCronField(dayOfWeek)
+
+  // Build all combinations
+  const intervals = []
+
+  const minuteVals = minutes || [null]
+  const hourVals = hours || [null]
+  const dayVals = days || [null]
+  const monthVals = months || [null]
+  const weekdayVals = weekdays || [null]
+
+  for (const m of minuteVals) {
+    for (const h of hourVals) {
+      for (const d of dayVals) {
+        for (const mo of monthVals) {
+          for (const wd of weekdayVals) {
+            const interval = {}
+            if (m !== null) interval.Minute = m
+            if (h !== null) interval.Hour = h
+            if (d !== null) interval.Day = d
+            if (mo !== null) interval.Month = mo
+            if (wd !== null) interval.Weekday = wd
+            intervals.push(interval)
+          }
+        }
+      }
+    }
+  }
+
+  return intervals.length === 1 ? intervals[0] : intervals
 }
 
 /**
@@ -79,12 +130,12 @@ export function generateJobPlistConfig(job, projectPath) {
   
   const config = {
     Label: `${LABEL_PREFIX}.job.${job.id}`,
-    ProgramArguments: [nodePath, cliPath, 'run', job.id],
+    ProgramArguments: [nodePath, cliPath, 'run', '--scheduled', job.id],
     StandardOutPath: path.join(logDir, 'runner.log'),
     StandardErrorPath: path.join(logDir, 'runner.error.log'),
     WorkingDirectory: projectPath,
     EnvironmentVariables: {
-      PATH: '/usr/local/bin:/usr/bin:/bin'
+      PATH: `${path.dirname(nodePath)}:/usr/local/bin:/usr/bin:/bin`
     }
   }
   
@@ -120,7 +171,7 @@ export function generateWakeCheckerPlistConfig(projectPath) {
     StandardErrorPath: path.join(logDir, 'runner.error.log'),
     WorkingDirectory: projectPath,
     EnvironmentVariables: {
-      PATH: '/usr/local/bin:/usr/bin:/bin'
+      PATH: `${path.dirname(nodePath)}:/usr/local/bin:/usr/bin:/bin`
     }
   }
 }

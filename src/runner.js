@@ -1,5 +1,5 @@
-import { getLastRun, markRun } from './state.js'
-import { shouldRun, isEnabled } from './scheduler.js'
+import { getLastRun, markRun, isPaused } from './state.js'
+import { shouldRun, isEnabled, getIntervalMs } from './scheduler.js'
 import { logRunner, logJob, createJobLogger, logRunnerSeparator, logJobSeparator } from './logger.js'
 import { acquireLock, releaseLock } from './lock.js'
 import { utils } from './actions/index.js'
@@ -11,13 +11,17 @@ import { utils } from './actions/index.js'
 /**
  * Run a single job if it's due
  * @param {Job} job
- * @returns {Promise<'ran'|'skipped'|'disabled'>}
+ * @returns {Promise<'ran'|'skipped'|'disabled'|'paused'>}
  */
 async function runIfDue(job) {
   if (!isEnabled(job)) {
     return 'disabled'
   }
-  
+
+  if (await isPaused(job.id)) {
+    return 'paused'
+  }
+
   const lastRun = await getLastRun(job.id)
   
   if (!shouldRun(job, lastRun)) {
@@ -30,9 +34,9 @@ async function runIfDue(job) {
   const start = Date.now()
   
   try {
-    // Pass logger and utils to job
+    // Pass logger, utils, and lastRun to job
     const logger = createJobLogger(job.id)
-    await job.run({ logger, utils })
+    await job.run({ logger, utils, lastRun })
     await markRun(job.id)
     const duration = Date.now() - start
     await logRunner(`[${job.id}] Completed in ${duration}ms`)
@@ -41,6 +45,7 @@ async function runIfDue(job) {
   } catch (err) {
     await logRunner(`[${job.id}] Failed: ${err.message}`)
     await logJob(job.id, `Failed: ${err.message}`)
+    utils.notify(`${job.id} failed`, err.message || 'Unknown error')
     // Don't mark as run on failure - will retry next time
     return 'skipped'
   }
@@ -49,19 +54,20 @@ async function runIfDue(job) {
 /**
  * Run all due jobs from the provided list
  * @param {Job[]} jobs
- * @returns {Promise<{ran: string[], skipped: string[], disabled: string[], failed: string[]}>}
+ * @returns {Promise<{ran: string[], skipped: string[], disabled: string[], paused: string[], failed: string[]}>}
  */
 export async function runAllDue(jobs) {
   await logRunnerSeparator()
   await logRunner(`=== cron-burgundy runner ===`)
   await logRunner(`Time: ${new Date().toISOString()}`)
   await logRunner(`Jobs to check: ${jobs.length}`)
-  
+
   const ran = []
   const skipped = []
   const disabled = []
+  const paused = []
   const failed = []
-  
+
   for (const job of jobs) {
     try {
       const result = await runIfDue(job)
@@ -69,6 +75,8 @@ export async function runAllDue(jobs) {
         ran.push(job.id)
       } else if (result === 'disabled') {
         disabled.push(job.id)
+      } else if (result === 'paused') {
+        paused.push(job.id)
       } else {
         skipped.push(job.id)
       }
@@ -77,41 +85,52 @@ export async function runAllDue(jobs) {
       failed.push(job.id)
     }
   }
-  
-  await logRunner(`=== Summary: ran=${ran.length}, skipped=${skipped.length}, disabled=${disabled.length}, failed=${failed.length} ===`)
-  
-  return { ran, skipped, disabled, failed }
+
+  await logRunner(`=== Summary: ran=${ran.length}, skipped=${skipped.length}, disabled=${disabled.length}, paused=${paused.length}, failed=${failed.length} ===`)
+
+  return { ran, skipped, disabled, paused, failed }
 }
 
 /**
  * Run a single job immediately (for CLI / launchd scheduled run)
  * @param {Job} job
+ * @param {{ scheduled?: boolean }} [options] - If scheduled, updates nextRun in state
  * @returns {Promise<void>}
  */
-export async function runJobNow(job) {
+export async function runJobNow(job, options = {}) {
+  // Check if paused
+  if (await isPaused(job.id)) {
+    console.log(`[${job.id}] Skipped - job is paused`)
+    return
+  }
+
   // Acquire lock - skip if another instance is already running
   if (!await acquireLock(job.id)) {
     console.log(`[${job.id}] Skipped - another instance is running (locked)`)
     return
   }
-  
+
   try {
     await logRunnerSeparator()
     await logJobSeparator(job.id)
-    await logRunner(`[${job.id}] Scheduled run triggered`)
-    await logJob(job.id, 'Scheduled run triggered')
-    
+    const triggerType = options.scheduled ? 'Scheduled' : 'Manual'
+    await logRunner(`[${job.id}] ${triggerType} run triggered`)
+    await logJob(job.id, `${triggerType} run triggered`)
+
     const start = Date.now()
     const logger = createJobLogger(job.id)
+    const lastRun = await getLastRun(job.id)
 
-    await job.run({ logger, utils })
-    await markRun(job.id)
+    await job.run({ logger, utils, lastRun })
+    const markOptions = options.scheduled && job.interval ? { interval: job.interval } : {}
+    await markRun(job.id, markOptions)
     const duration = Date.now() - start
     await logRunner(`[${job.id}] Completed in ${duration}ms`)
     await logJob(job.id, `Completed in ${duration}ms`)
   } catch (err) {
     await logRunner(`[${job.id}] Failed: ${err.message}`)
     await logJob(job.id, `Failed: ${err.message}`)
+    utils.notify(`${job.id} failed`, err.message || 'Unknown error')
     throw err
   } finally {
     await releaseLock(job.id)
@@ -127,7 +146,8 @@ export async function checkMissed(jobs) {
   await logRunnerSeparator()
   await logRunner(`=== Wake check: looking for missed jobs ===`)
   await logRunner(`Time: ${new Date().toISOString()}`)
-  
+
+  // Filter out disabled and globally paused
   const enabledJobs = jobs.filter(j => isEnabled(j))
   await logRunner(`Enabled jobs to check: ${enabledJobs.length}`)
   
@@ -135,6 +155,13 @@ export async function checkMissed(jobs) {
   const skipped = []
   
   for (const job of enabledJobs) {
+    // Check if paused
+    if (await isPaused(job.id)) {
+      await logRunner(`[${job.id}] Skipped - job is paused`)
+      skipped.push(job.id)
+      continue
+    }
+
     // Acquire lock - skip if another instance is already running
     if (!await acquireLock(job.id)) {
       await logRunner(`[${job.id}] Skipped - another instance is running (locked)`)
@@ -149,11 +176,11 @@ export async function checkMissed(jobs) {
         await logRunner(`[${job.id}] Missed! Running now...`)
         await logJobSeparator(job.id)
         await logJob(job.id, 'Missed job - running on wake')
-        
+
         const start = Date.now()
         const logger = createJobLogger(job.id)
 
-        await job.run({ logger, utils })
+        await job.run({ logger, utils, lastRun })
         await markRun(job.id)
         const duration = Date.now() - start
         await logRunner(`[${job.id}] Completed in ${duration}ms`)
@@ -165,6 +192,7 @@ export async function checkMissed(jobs) {
     } catch (err) {
       await logRunner(`[${job.id}] Failed: ${err.message}`)
       await logJob(job.id, `Failed: ${err.message}`)
+      utils.notify(`${job.id} failed`, err.message || 'Unknown error')
       skipped.push(job.id)
     } finally {
       await releaseLock(job.id)

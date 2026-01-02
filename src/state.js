@@ -137,13 +137,103 @@ export async function getLastRun(jobId) {
 /**
  * Mark a job as having just run
  * @param {string} jobId
+ * @param {{ interval?: number }} [options] - If interval provided, also sets nextRun
  * @returns {Promise<void>}
  */
-export async function markRun(jobId) {
+export async function markRun(jobId, options = {}) {
   await updateState(state => {
-    state[jobId] = new Date().toISOString()
+    const now = new Date()
+    state[jobId] = now.toISOString()
+    if (options.interval) {
+      state[`${jobId}:nextRun`] = new Date(now.getTime() + options.interval).toISOString()
+    }
     return state
   })
+}
+
+/**
+ * Get the next scheduled run time for a job
+ * @param {string} jobId
+ * @returns {Promise<Date|null>}
+ */
+export async function getNextScheduledRun(jobId) {
+  const state = await getState()
+  const nextRun = state[`${jobId}:nextRun`]
+  return nextRun ? new Date(nextRun) : null
+}
+
+/**
+ * Check if a job (or all) is paused
+ * @param {string} [jobId] - specific job, or omit for global check
+ * @returns {Promise<boolean>}
+ */
+export async function isPaused(jobId) {
+  const state = await getState()
+  // _paused can be: true (all paused), or array of job ids
+  if (state._paused === true) return true
+  if (Array.isArray(state._paused) && jobId) {
+    return state._paused.includes(jobId)
+  }
+  return false
+}
+
+/**
+ * Pause a job or all jobs
+ * @param {string} [jobId] - 'all' or specific job id
+ * @returns {Promise<void>}
+ */
+export async function pause(jobId) {
+  await updateState(state => {
+    if (jobId === 'all') {
+      state._paused = true
+    } else {
+      // Add to paused array (unless already globally paused)
+      if (state._paused !== true) {
+        const paused = Array.isArray(state._paused) ? state._paused : []
+        if (!paused.includes(jobId)) {
+          paused.push(jobId)
+        }
+        state._paused = paused
+      }
+    }
+    return state
+  })
+}
+
+/**
+ * Resume a job or all jobs
+ * @param {string} [jobId] - 'all' or specific job id
+ * @returns {Promise<void>}
+ */
+export async function resume(jobId) {
+  await updateState(state => {
+    if (jobId === 'all') {
+      delete state._paused
+    } else if (Array.isArray(state._paused)) {
+      state._paused = state._paused.filter(id => id !== jobId)
+      if (state._paused.length === 0) {
+        delete state._paused
+      }
+    }
+    // If globally paused and resuming specific job, can't do much
+    // User should resume all first
+    return state
+  })
+}
+
+/**
+ * Get current pause status
+ * @returns {Promise<{all: boolean, jobs: string[]}>}
+ */
+export async function getPauseStatus() {
+  const state = await getState()
+  if (state._paused === true) {
+    return { all: true, jobs: [] }
+  }
+  if (Array.isArray(state._paused)) {
+    return { all: false, jobs: state._paused }
+  }
+  return { all: false, jobs: [] }
 }
 
 export { STATE_DIR, STATE_FILE }

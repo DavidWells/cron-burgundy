@@ -4,7 +4,7 @@ import { Command } from 'commander'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { runAllDue, runJobNow, checkMissed } from '../src/runner.js'
-import { getState } from '../src/state.js'
+import { getState, pause, resume, getPauseStatus, isPaused, getNextScheduledRun } from '../src/state.js'
 import { getIntervalMs, getNextRun, formatInterval, isEnabled, getDisplaySchedule } from '../src/scheduler.js'
 import { sync, uninstallAll, listInstalledPlists } from '../src/launchd.js'
 import { spawn } from 'child_process'
@@ -23,26 +23,32 @@ program
 program
   .command('run')
   .argument('[jobId]', 'Job ID to run immediately')
+  .option('-s, --scheduled', 'Mark as scheduled run (updates nextRun in state)')
   .description('Run a specific job by ID (called by launchd)')
-  .action(async (jobId) => {
+  .action(async (jobId, options) => {
     try {
       const { jobs } = await import(path.join(PROJECT_ROOT, 'jobs.js'))
-      
+
       if (jobId) {
         const job = jobs.find(j => j.id === jobId)
         if (!job) {
           console.error(`Error: Job "${jobId}" not found`)
           process.exit(1)
         }
-        if (!isEnabled(job)) {
+        if (options.scheduled && !isEnabled(job)) {
           console.log(`Job "${jobId}" is disabled, skipping`)
           return
         }
-        await runJobNow(job)
+        await runJobNow(job, { scheduled: options.scheduled })
         console.log(`✓ ${jobId} completed`)
       } else {
-        console.error('Error: Job ID required')
-        console.error('Usage: cron-burgundy run <jobId>')
+        console.error('Error: Job ID required\n')
+        console.error('Available jobs:')
+        for (const job of jobs) {
+          const status = isEnabled(job) ? '✓' : '✗'
+          console.error(`  ${status} ${job.id}`)
+        }
+        console.error('\nUsage: cron-burgundy run <jobId>')
         process.exit(1)
       }
     } catch (err) {
@@ -77,32 +83,44 @@ program
     try {
       const { jobs } = await import(path.join(PROJECT_ROOT, 'jobs.js'))
       const state = await getState()
-      
+      const pauseStatus = await getPauseStatus()
+
       console.log('\n=== Registered Jobs ===\n')
-      
+
+      if (pauseStatus.all) {
+        console.log('⏸  ALL JOBS PAUSED\n')
+      }
+
       const enabled = jobs.filter(j => isEnabled(j))
       const disabled = jobs.filter(j => !isEnabled(j))
-      
+
       for (const job of jobs) {
         const lastRunStr = state[job.id]
         const lastRun = lastRunStr ? new Date(lastRunStr) : null
-        const nextRun = getNextRun(job, lastRun)
-        const status = isEnabled(job) ? '✓' : '✗'
-        
+        // For interval jobs, use stored nextRun; for cron jobs, calculate from expression
+        const nextRun = job.interval
+          ? await getNextScheduledRun(job.id)
+          : getNextRun(job, lastRun)
+        const jobPaused = pauseStatus.all || pauseStatus.jobs.includes(job.id)
+        const status = !isEnabled(job) ? '✗' : jobPaused ? '⏸' : '✓'
+
         console.log(`${status} ${job.id}`)
         if (job.description) {
           console.log(`   ${job.description}`)
         }
-        console.log(`   Status:   ${isEnabled(job) ? 'enabled' : 'DISABLED'}`)
+        const statusText = !isEnabled(job) ? 'DISABLED' : jobPaused ? 'PAUSED' : 'enabled'
+        console.log(`   Status:   ${statusText}`)
         console.log(`   Schedule: ${getDisplaySchedule(job)}`)
         console.log(`   Last run: ${lastRun ? lastRun.toLocaleString() : 'never'}`)
-        if (isEnabled(job)) {
-          console.log(`   Next due: ${nextRun ? nextRun.toLocaleString() : 'now'}`)
+        if (isEnabled(job) && !jobPaused) {
+          const nextDueStr = nextRun ? nextRun.toLocaleString() : (job.interval ? 'unknown' : 'now')
+          console.log(`   Next due: ${nextDueStr}`)
         }
         console.log('')
       }
-      
-      console.log(`Total: ${jobs.length} jobs (${enabled.length} enabled, ${disabled.length} disabled)`)
+
+      const pausedCount = pauseStatus.all ? enabled.length : pauseStatus.jobs.length
+      console.log(`Total: ${jobs.length} jobs (${enabled.length} enabled, ${disabled.length} disabled, ${pausedCount} paused)`)
     } catch (err) {
       if (err.code === 'ERR_MODULE_NOT_FOUND') {
         console.error('Error: jobs.js not found in project root')
@@ -248,6 +266,32 @@ logsCmd
     } else {
       await clearRunnerLog()
       console.log('✓ Cleared runner log')
+    }
+  })
+
+program
+  .command('pause')
+  .argument('<name>', 'Job ID to pause, or "all" for all jobs')
+  .description('Pause a job or all jobs')
+  .action(async (name) => {
+    await pause(name)
+    if (name === 'all') {
+      console.log('✓ All jobs paused')
+    } else {
+      console.log(`✓ Paused: ${name}`)
+    }
+  })
+
+program
+  .command('resume')
+  .argument('<name>', 'Job ID to resume, or "all" for all jobs')
+  .description('Resume a paused job or all jobs')
+  .action(async (name) => {
+    await resume(name)
+    if (name === 'all') {
+      console.log('✓ All jobs resumed')
+    } else {
+      console.log(`✓ Resumed: ${name}`)
     }
   })
 
