@@ -2,16 +2,13 @@
 
 import { Command } from 'commander'
 import path from 'path'
-import { fileURLToPath } from 'url'
 import { runAllDue, runJobNow, checkMissed } from '../src/runner.js'
 import { getState, pause, resume, getPauseStatus, isPaused, getNextScheduledRun } from '../src/state.js'
 import { getIntervalMs, getNextRun, formatInterval, isEnabled, getDisplaySchedule } from '../src/scheduler.js'
 import { sync, uninstallAll, listInstalledPlists } from '../src/launchd.js'
 import { spawn } from 'child_process'
 import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const PROJECT_ROOT = path.resolve(__dirname, '..')
+import { getRegistry, registerFile, unregisterFile, loadAllJobs, findJob, getAllJobsFlat } from '../src/registry.js'
 
 const program = new Command()
 
@@ -26,37 +23,43 @@ program
   .option('-s, --scheduled', 'Mark as scheduled run (updates nextRun in state)')
   .description('Run a specific job by ID (called by launchd)')
   .action(async (jobId, options) => {
-    try {
-      const { jobs } = await import(path.join(PROJECT_ROOT, 'jobs.js'))
-
-      if (jobId) {
-        const job = jobs.find(j => j.id === jobId)
-        if (!job) {
-          console.error(`Error: Job "${jobId}" not found`)
-          process.exit(1)
+    if (jobId) {
+      const result = await findJob(jobId)
+      if (!result) {
+        console.error(`Error: Job "${jobId}" not found\n`)
+        const allJobs = await getAllJobsFlat()
+        if (allJobs.length > 0) {
+          console.error('Available jobs:')
+          for (const job of allJobs) {
+            const status = isEnabled(job) ? '✓' : '✗'
+            console.error(`  ${status} ${job.id}`)
+          }
+        } else {
+          console.error('No jobs registered. Run: cron-burgundy sync <path/to/jobs.js>')
         }
-        if (options.scheduled && !isEnabled(job)) {
-          console.log(`Job "${jobId}" is disabled, skipping`)
-          return
-        }
-        await runJobNow(job, { scheduled: options.scheduled })
-        console.log(`✓ ${jobId} completed`)
-      } else {
-        console.error('Error: Job ID required\n')
+        process.exit(1)
+      }
+      const { job } = result
+      if (options.scheduled && !isEnabled(job)) {
+        console.log(`Job "${jobId}" is disabled, skipping`)
+        return
+      }
+      await runJobNow(job, { scheduled: options.scheduled })
+      console.log(`✓ ${jobId} completed`)
+    } else {
+      console.error('Error: Job ID required\n')
+      const allJobs = await getAllJobsFlat()
+      if (allJobs.length > 0) {
         console.error('Available jobs:')
-        for (const job of jobs) {
+        for (const job of allJobs) {
           const status = isEnabled(job) ? '✓' : '✗'
           console.error(`  ${status} ${job.id}`)
         }
-        console.error('\nUsage: cron-burgundy run <jobId>')
-        process.exit(1)
+      } else {
+        console.error('No jobs registered. Run: cron-burgundy sync <path/to/jobs.js>')
       }
-    } catch (err) {
-      if (err.code === 'ERR_MODULE_NOT_FOUND') {
-        console.error('Error: jobs.js not found in project root')
-        process.exit(1)
-      }
-      throw err
+      console.error('\nUsage: cron-burgundy run <jobId>')
+      process.exit(1)
     }
   })
 
@@ -64,101 +67,176 @@ program
   .command('check-missed')
   .description('Check and run any missed jobs (called by launchd on wake)')
   .action(async () => {
-    try {
-      const { jobs } = await import(path.join(PROJECT_ROOT, 'jobs.js'))
-      await checkMissed(jobs)
-    } catch (err) {
-      if (err.code === 'ERR_MODULE_NOT_FOUND') {
-        console.error('Error: jobs.js not found in project root')
-        process.exit(1)
-      }
-      throw err
+    const allJobs = await getAllJobsFlat()
+    if (allJobs.length === 0) {
+      console.log('No jobs registered')
+      return
     }
+    await checkMissed(allJobs)
   })
 
 program
   .command('list')
   .description('List all registered jobs with status')
   .action(async () => {
-    try {
-      const { jobs } = await import(path.join(PROJECT_ROOT, 'jobs.js'))
-      const state = await getState()
-      const pauseStatus = await getPauseStatus()
+    const sources = await loadAllJobs()
+    const state = await getState()
+    const pauseStatus = await getPauseStatus()
 
-      console.log('\n=== Registered Jobs ===\n')
+    console.log('\n=== Registered Jobs ===\n')
 
-      if (pauseStatus.all) {
-        console.log('⏸  ALL JOBS PAUSED\n')
+    if (pauseStatus.all) {
+      console.log('⏸  ALL JOBS PAUSED\n')
+    }
+
+    if (sources.length === 0) {
+      console.log('No job files registered.')
+      console.log('Run: cron-burgundy sync <path/to/jobs.js>')
+      return
+    }
+
+    let totalJobs = 0
+    let totalEnabled = 0
+    let totalDisabled = 0
+
+    for (const source of sources) {
+      console.log(`${source.file}:`)
+
+      if (source.error) {
+        console.log(`  ⚠ Error loading: ${source.error}\n`)
+        continue
       }
 
-      const enabled = jobs.filter(j => isEnabled(j))
-      const disabled = jobs.filter(j => !isEnabled(j))
+      if (source.jobs.length === 0) {
+        console.log('  (no jobs)\n')
+        continue
+      }
 
-      for (const job of jobs) {
+      for (const job of source.jobs) {
         const lastRunStr = state[job.id]
         const lastRun = lastRunStr ? new Date(lastRunStr) : null
-        // For interval jobs, use stored nextRun; for cron jobs, calculate from expression
         const nextRun = job.interval
           ? await getNextScheduledRun(job.id)
           : getNextRun(job, lastRun)
         const jobPaused = pauseStatus.all || pauseStatus.jobs.includes(job.id)
         const status = !isEnabled(job) ? '✗' : jobPaused ? '⏸' : '✓'
 
-        console.log(`${status} ${job.id}`)
+        console.log(`  ${status} ${job.id}`)
         if (job.description) {
-          console.log(`   ${job.description}`)
+          console.log(`     ${job.description}`)
         }
         const statusText = !isEnabled(job) ? 'DISABLED' : jobPaused ? 'PAUSED' : 'enabled'
-        console.log(`   Status:   ${statusText}`)
-        console.log(`   Schedule: ${getDisplaySchedule(job)}`)
-        console.log(`   Last run: ${lastRun ? lastRun.toLocaleString() : 'never'}`)
+        console.log(`     Status:   ${statusText}`)
+        console.log(`     Schedule: ${getDisplaySchedule(job)}`)
+        console.log(`     Last run: ${lastRun ? lastRun.toLocaleString() : 'never'}`)
         if (isEnabled(job) && !jobPaused) {
           const nextDueStr = nextRun ? nextRun.toLocaleString() : (job.interval ? 'unknown' : 'now')
-          console.log(`   Next due: ${nextDueStr}`)
+          console.log(`     Next due: ${nextDueStr}`)
         }
         console.log('')
-      }
 
-      const pausedCount = pauseStatus.all ? enabled.length : pauseStatus.jobs.length
-      console.log(`Total: ${jobs.length} jobs (${enabled.length} enabled, ${disabled.length} disabled, ${pausedCount} paused)`)
-    } catch (err) {
-      if (err.code === 'ERR_MODULE_NOT_FOUND') {
-        console.error('Error: jobs.js not found in project root')
-        process.exit(1)
+        totalJobs++
+        if (isEnabled(job)) totalEnabled++
+        else totalDisabled++
       }
-      throw err
     }
+
+    const pausedCount = pauseStatus.all ? totalEnabled : pauseStatus.jobs.length
+    console.log(`Total: ${totalJobs} jobs (${totalEnabled} enabled, ${totalDisabled} disabled, ${pausedCount} paused)`)
+    console.log(`Files: ${sources.length} registered`)
   })
 
 program
   .command('sync')
-  .description('Sync jobs with launchd (install enabled, remove disabled)')
-  .action(async () => {
-    try {
-      const { jobs } = await import(path.join(PROJECT_ROOT, 'jobs.js'))
-      await sync(jobs, PROJECT_ROOT)
-    } catch (err) {
-      if (err.code === 'ERR_MODULE_NOT_FOUND') {
-        console.error('Error: jobs.js not found in project root')
-        process.exit(1)
+  .argument('[path]', 'Path to jobs.js file to register and sync')
+  .description('Register and sync a job file, or sync all registered files')
+  .action(async (filePath) => {
+    if (filePath) {
+      // Register and sync a specific file
+      const absPath = path.resolve(filePath)
+
+      // Check file exists
+      try {
+        const { jobs } = await import(absPath)
+        if (!jobs || !Array.isArray(jobs)) {
+          console.error(`Error: ${absPath} must export a 'jobs' array`)
+          process.exit(1)
+        }
+
+        const result = await registerFile(absPath)
+        if (result === 'added') {
+          console.log(`✓ Registered: ${absPath}`)
+        } else {
+          console.log(`  Already registered: ${absPath}`)
+        }
+
+        // Sync this file's jobs
+        const projectPath = path.dirname(absPath)
+        await sync(jobs, projectPath)
+      } catch (err) {
+        if (err.code === 'ERR_MODULE_NOT_FOUND') {
+          console.error(`Error: File not found: ${absPath}`)
+          process.exit(1)
+        }
+        throw err
       }
-      throw err
+    } else {
+      // Sync all registered files
+      const sources = await loadAllJobs()
+
+      if (sources.length === 0) {
+        console.log('No job files registered.')
+        console.log('Usage: cron-burgundy sync <path/to/jobs.js>')
+        return
+      }
+
+      console.log(`\nSyncing ${sources.length} registered file(s)...\n`)
+
+      for (const source of sources) {
+        if (source.error) {
+          console.log(`⚠ Skipping ${source.file}: ${source.error}`)
+          continue
+        }
+        const projectPath = path.dirname(source.file)
+        await sync(source.jobs, projectPath)
+      }
     }
   })
 
 program
   .command('uninstall')
-  .description('Remove all launchd plists')
+  .description('Remove all launchd plists for all registered jobs')
   .action(async () => {
+    const allJobs = await getAllJobsFlat()
+    if (allJobs.length === 0) {
+      console.log('No jobs registered')
+      return
+    }
+    await uninstallAll(allJobs)
+  })
+
+program
+  .command('unregister')
+  .argument('<path>', 'Path to jobs.js file to unregister')
+  .description('Unregister a job file (also uninstalls its jobs from launchd)')
+  .action(async (filePath) => {
+    const absPath = path.resolve(filePath)
+
+    // Try to load and uninstall jobs first
     try {
-      const { jobs } = await import(path.join(PROJECT_ROOT, 'jobs.js'))
-      await uninstallAll(jobs)
-    } catch (err) {
-      if (err.code === 'ERR_MODULE_NOT_FOUND') {
-        console.error('Error: jobs.js not found in project root')
-        process.exit(1)
+      const { jobs } = await import(absPath)
+      if (jobs && Array.isArray(jobs)) {
+        await uninstallAll(jobs)
       }
-      throw err
+    } catch {
+      // File might not exist anymore, that's ok
+    }
+
+    const result = await unregisterFile(absPath)
+    if (result === 'removed') {
+      console.log(`✓ Unregistered: ${absPath}`)
+    } else {
+      console.log(`  Not registered: ${absPath}`)
     }
   })
 
@@ -200,13 +278,10 @@ logsCmd
     if (options.tail) {
       // Show job schedule info if tailing a specific job
       if (jobId) {
-        try {
-          const { jobs } = await import(path.join(PROJECT_ROOT, 'jobs.js'))
-          const job = jobs.find(j => j.id === jobId)
-          if (job) {
-            console.log(`\nSchedule: ${getDisplaySchedule(job)}`)
-          }
-        } catch {}
+        const result = await findJob(jobId)
+        if (result) {
+          console.log(`\nSchedule: ${getDisplaySchedule(result.job)}`)
+        }
       }
       console.log(`\n=== Tailing: ${logPath} ===\n`)
       console.log('(Press Ctrl+C to stop)\n')

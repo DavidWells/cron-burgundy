@@ -214,3 +214,31 @@ node bin/cli.js sync  # Removes disabled job from launchd
 │  - Releases lock                        │
 └─────────────────────────────────────────┘
 ```
+
+## DarkWake Behavior
+
+Jobs can run even when your Mac appears asleep. macOS uses **DarkWake** - brief wake periods where background tasks run while the display stays off.
+
+### What triggers DarkWake
+
+- **Do Not Disturb schedule** - DND end time wakes the system
+- **Power Nap** - periodic maintenance wakes (if enabled)
+- **Scheduled alarms** - Calendar events, reminders
+- **Push notifications** - iCloud, Messages, etc.
+- **Network activity** - Wake on LAN, Find My Mac
+
+### How it affects your jobs
+
+If a `StartCalendarInterval` job is scheduled during a DarkWake, launchd runs it. This means:
+
+- Jobs may run at their exact scheduled time even while "asleep"
+- Audio (`utils.speak()`, `utils.playSound()`) will play
+- Logs show the actual scheduled time, not wake time
+
+### Checking wake events
+
+```bash
+pmset -g log | grep -E "(Wake|Sleep)" | tail -20
+```
+
+Look for `DarkWake` entries to see when your Mac briefly woke.
