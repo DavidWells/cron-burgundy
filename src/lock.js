@@ -46,21 +46,50 @@ async function ensureLockDir() {
  */
 async function isLocked(jobId) {
   const lockPath = getLockPath(jobId)
-  
+
   try {
+    const content = await fs.readFile(lockPath, 'utf8')
+    const lockData = JSON.parse(content)
+
+    // Check if owning process is still alive
+    if (lockData.pid) {
+      try {
+        // kill(pid, 0) checks if process exists without sending signal
+        process.kill(lockData.pid, 0)
+        // Process is alive - lock is valid
+        return true
+      } catch (err) {
+        // ESRCH = No such process - lock is stale
+        if (err.code === 'ESRCH') {
+          console.log(`[${jobId}] Removing stale lock (PID ${lockData.pid} dead)`)
+          await fs.unlink(lockPath).catch(() => {})
+          return false
+        }
+        // EPERM = process exists but we can't signal it - lock is valid
+        if (err.code === 'EPERM') {
+          return true
+        }
+      }
+    }
+
+    // Fall back to age-based stale detection
     const stats = await fs.stat(lockPath)
     const age = Date.now() - stats.mtimeMs
-    
-    // If lock is stale, remove it
+
     if (age > STALE_LOCK_MS) {
       console.log(`[${jobId}] Removing stale lock (${Math.round(age / 1000 / 60)}min old)`)
       await fs.unlink(lockPath).catch(() => {})
       return false
     }
-    
+
     return true
   } catch (err) {
     if (err.code === 'ENOENT') return false
+    // JSON parse error or other - treat as stale
+    if (err instanceof SyntaxError) {
+      await fs.unlink(lockPath).catch(() => {})
+      return false
+    }
     throw err
   }
 }

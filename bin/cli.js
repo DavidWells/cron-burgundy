@@ -7,7 +7,7 @@ import { getState, pause, resume, getPauseStatus, isPaused, getNextScheduledRun 
 import { getIntervalMs, getNextRun, formatInterval, isEnabled, getDisplaySchedule } from '../src/scheduler.js'
 import { sync, uninstallAll, listInstalledPlists } from '../src/launchd.js'
 import { spawn } from 'child_process'
-import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
+import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, colorizeLine, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
 import { getRegistry, registerFile, unregisterFile, loadAllJobs, findJob, getAllJobsFlat } from '../src/registry.js'
 
 const program = new Command()
@@ -45,7 +45,9 @@ program
         return
       }
       await runJobNow(job, { scheduled: options.scheduled })
-      console.log(`✓ ${jobId} completed`)
+      if (!options.scheduled) {
+        console.log(`✓ ${jobId} completed`)
+      }
     } else {
       console.error('Error: Job ID required\n')
       const allJobs = await getAllJobsFlat()
@@ -190,7 +192,11 @@ program
         return
       }
 
-      console.log(`\nSyncing ${sources.length} registered file(s)...\n`)
+      console.log(`\nSyncing ${sources.length} registered file(s):`)
+      for (const source of sources) {
+        console.log(`  ${source.file}`)
+      }
+      console.log('')
 
       for (const source of sources) {
         if (source.error) {
@@ -300,7 +306,8 @@ logsCmd
     } else {
       console.log('\n=== Runner Log ===\n')
       const log = await readRunnerLog(lines)
-      console.log(log)
+      const colorized = log.split('\n').map(colorizeLine).join('\n')
+      console.log(colorized)
     }
   })
 

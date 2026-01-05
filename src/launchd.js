@@ -23,8 +23,8 @@ const LABEL_PREFIX = 'com.cron-burgundy'
 const WAKE_CHECKER_LABEL = `${LABEL_PREFIX}.wakecheck`
 const LAUNCH_AGENTS_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents')
 
-// launchd limits
-const MIN_INTERVAL_SECONDS = 3
+// launchd limits (Apple enforces 10 second minimum for StartInterval)
+const MIN_INTERVAL_SECONDS = 10
 const MIN_INTERVAL_MS = MIN_INTERVAL_SECONDS * 1000
 
 /**
@@ -315,7 +315,7 @@ export async function uninstallWakeChecker() {
 export async function sync(jobs, projectPath) {
   const { isEnabled } = await import('./scheduler.js')
 
-  console.log('\n=== Syncing jobs with launchd ===\n')
+  console.log('=== Syncing jobs with launchd ===\n')
 
   const enabled = jobs.filter(j => isEnabled(j))
   const disabled = jobs.filter(j => !isEnabled(j))

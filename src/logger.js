@@ -63,12 +63,83 @@ async function deleteLogWithRotations(filePath) {
 
 const SEPARATOR = '────────────────────────────────────────'
 
+// ANSI colors for job-id coloring (similar to npm debug)
+const COLORS = [
+  '\x1b[36m',  // cyan
+  '\x1b[33m',  // yellow
+  '\x1b[32m',  // green
+  '\x1b[35m',  // magenta
+  '\x1b[34m',  // blue
+  '\x1b[91m',  // bright red
+  '\x1b[92m',  // bright green
+  '\x1b[93m',  // bright yellow
+  '\x1b[94m',  // bright blue
+  '\x1b[95m',  // bright magenta
+  '\x1b[96m',  // bright cyan
+]
+const RESET = '\x1b[0m'
+const DIM = '\x1b[2m'
+
 /**
- * Format timestamp for logs
+ * Get consistent color for a job ID (hash-based like npm debug)
+ * @param {string} jobId
+ * @returns {string}
+ */
+function getJobColor(jobId) {
+  let hash = 0
+  for (let i = 0; i < jobId.length; i++) {
+    hash = ((hash << 5) - hash) + jobId.charCodeAt(i)
+    hash |= 0
+  }
+  return COLORS[Math.abs(hash) % COLORS.length]
+}
+
+/**
+ * Format timestamp for logs (ISO)
  * @returns {string}
  */
 function timestamp() {
   return new Date().toISOString()
+}
+
+/**
+ * Format human-readable timestamp (local timezone)
+ * @param {Date} [date]
+ * @param {{ seconds?: boolean }} [opts]
+ * @returns {string} e.g. "Monday 12:01pm, Jan 05, 2026" or "Monday 12:01:30pm, Jan 05, 2026"
+ */
+export function humanTime(date = new Date(), opts = {}) {
+  const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+  const hour = date.getHours()
+  const minute = date.getMinutes().toString().padStart(2, '0')
+  const second = date.getSeconds().toString().padStart(2, '0')
+  const ampm = hour >= 12 ? 'pm' : 'am'
+  const hour12 = hour % 12 || 12
+  const month = date.toLocaleDateString('en-US', { month: 'short' })
+  const day = date.getDate().toString().padStart(2, '0')
+  const year = date.getFullYear()
+  const time = opts.seconds ? `${hour12}:${minute}:${second}${ampm}` : `${hour12}:${minute}${ampm}`
+  return `${weekday} ${time}, ${month} ${day}, ${year}`
+}
+
+/**
+ * Colorize a log line for display (parses [job-id] prefix)
+ * @param {string} line
+ * @returns {string}
+ */
+export function colorizeLine(line) {
+  // Match pattern: [job-id][timestamp] message
+  const match = line.match(/^\[([^\]]+)\]\[([^\]]+)\]\s*(.*)$/)
+  if (match) {
+    const [, jobId, ts, msg] = match
+    const color = getJobColor(jobId)
+    return `${color}[${jobId}]${RESET}${DIM}[${ts}]${RESET} ${msg}`
+  }
+  // Match separator or other lines
+  if (line.includes('────')) {
+    return `${DIM}${line}${RESET}`
+  }
+  return line
 }
 
 /**
@@ -84,12 +155,20 @@ async function appendLog(filePath, message) {
 }
 
 /**
- * Log to the main runner log
+ * Log to the main runner log (file only - no console output)
+ * Format: [job-id][timestamp] message (if jobId provided)
+ *         [timestamp] message (if no jobId)
  * @param {string} message
+ * @param {string} [jobId]
  */
-export async function logRunner(message) {
-  console.log(message)
-  await appendLog(RUNNER_LOG, message)
+export async function logRunner(message, jobId) {
+  await ensureLogDirs()
+  await rotateIfNeeded(RUNNER_LOG)
+  const ts = timestamp()
+  const line = jobId
+    ? `[${jobId}][${ts}] ${message}\n`
+    : `[${ts}] ${message}\n`
+  await fs.appendFile(RUNNER_LOG, line)
 }
 
 /**
@@ -128,6 +207,60 @@ export async function logJobSeparator(jobId) {
 export function createJobLogger(jobId) {
   return {
     log: (message) => logJob(jobId, message)
+  }
+}
+
+/**
+ * Capture stdout/stderr during a function execution and route to job log
+ * @param {string} jobId
+ * @param {() => Promise<void>} fn
+ * @returns {Promise<void>}
+ */
+export async function captureJobOutput(jobId, fn) {
+  const jobLogPath = path.join(JOBS_LOG_DIR, `${jobId}.log`)
+  await ensureLogDirs()
+
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout)
+  const originalStderrWrite = process.stderr.write.bind(process.stderr)
+
+  /** @type {string[]} */
+  const buffer = []
+
+  /**
+   * @param {string | Uint8Array} chunk
+   * @param {BufferEncoding | ((err?: Error) => void)} [encoding]
+   * @param {(err?: Error) => void} [callback]
+   */
+  const captureWrite = (chunk, encoding, callback) => {
+    const str = typeof chunk === 'string' ? chunk : chunk.toString()
+    buffer.push(str)
+    // Call callback if provided
+    if (typeof encoding === 'function') {
+      encoding()
+    } else if (typeof callback === 'function') {
+      callback()
+    }
+    return true
+  }
+
+  // @ts-ignore - overriding write signature
+  process.stdout.write = captureWrite
+  // @ts-ignore - overriding write signature
+  process.stderr.write = captureWrite
+
+  try {
+    await fn()
+  } finally {
+    process.stdout.write = originalStdoutWrite
+    process.stderr.write = originalStderrWrite
+
+    // Write captured output to job log (without timestamps, raw output)
+    if (buffer.length > 0) {
+      const output = buffer.join('')
+      if (output.trim()) {
+        await fs.appendFile(jobLogPath, output)
+      }
+    }
   }
 }
 
