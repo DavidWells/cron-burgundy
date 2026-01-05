@@ -123,12 +123,12 @@ export function humanTime(date = new Date(), opts = {}) {
  * @returns {string}
  */
 export function colorizeLine(line) {
-  // Match pattern: [job-id][timestamp] message
+  // Match pattern: [timestamp][job-id] message
   const match = line.match(/^\[([^\]]+)\]\[([^\]]+)\]\s*(.*)$/)
   if (match) {
-    const [, jobId, ts, msg] = match
+    const [, ts, jobId, msg] = match
     const color = getJobColor(jobId)
-    return `${color}[${jobId}]${RESET}${DIM}[${ts}]${RESET} ${msg}`
+    return `${DIM}[${ts}]${RESET}${color}[${jobId}]${RESET} ${msg}`
   }
   // Match separator or other lines
   if (line.includes('────')) {
@@ -161,7 +161,7 @@ export async function logRunner(message, jobId) {
   await rotateIfNeeded(RUNNER_LOG)
   const ts = timestamp()
   const line = jobId
-    ? `[${jobId}][${ts}] ${message}\n`
+    ? `[${ts}][${jobId}] ${message}\n`
     : `[${ts}] ${message}\n`
   await fs.appendFile(RUNNER_LOG, line)
 }

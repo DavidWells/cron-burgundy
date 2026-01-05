@@ -1,6 +1,6 @@
 import { getLastRun, markRun, isPaused } from './state.js'
 import { shouldRun, isEnabled, getIntervalMs, getNextRun } from './scheduler.js'
-import { logRunner, logJob, createJobLogger, logRunnerSeparator, logJobSeparator, captureJobOutput, humanTime } from './logger.js'
+import { logRunner, logJob, createJobLogger, logJobSeparator, captureJobOutput, humanTime } from './logger.js'
 import { acquireLock, releaseLock } from './lock.js'
 import { utils } from './actions/index.js'
 
@@ -71,8 +71,7 @@ async function runIfDue(job) {
  * @returns {Promise<{ran: string[], skipped: string[], disabled: string[], paused: string[], failed: string[]}>}
  */
 export async function runAllDue(jobs) {
-  await logRunnerSeparator()
-  await logRunner(`=== cron-burgundy runner ===`)
+  await logRunner(`=== cron-burgundy runner === ────────────────────`)
   await logRunner(`Time: ${new Date().toISOString()}`)
   await logRunner(`Jobs to check: ${jobs.length}`)
 
@@ -126,10 +125,9 @@ export async function runJobNow(job, options = {}) {
   }
 
   try {
-    await logRunnerSeparator()
     await logJobSeparator(job.id)
     const triggerType = options.scheduled ? 'Scheduled' : 'Manual'
-    await logRunner(`${triggerType} run on ${humanTime(new Date(), { seconds: true })}`, job.id)
+    await logRunner(`${triggerType} run on ${humanTime(new Date(), { seconds: true })} ────────────────────`, job.id)
     await logJob(job.id, `${triggerType} run on ${humanTime(new Date(), { seconds: true })}`)
 
     const start = Date.now()
@@ -163,8 +161,7 @@ export async function runJobNow(job, options = {}) {
  * @returns {Promise<{ran: string[], skipped: string[]}>}
  */
 export async function checkMissed(jobs) {
-  await logRunnerSeparator()
-  await logRunner(`=== Wake check: looking for missed jobs ===`)
+  await logRunner(`=== Wake check: looking for missed jobs === ────────────────────`)
   await logRunner(`Time: ${new Date().toISOString()}`)
 
   // Filter out disabled and globally paused
