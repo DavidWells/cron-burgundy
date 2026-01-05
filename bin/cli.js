@@ -7,7 +7,7 @@ import { getState, pause, resume, getPauseStatus, isPaused, getNextScheduledRun 
 import { getIntervalMs, getNextRun, formatInterval, isEnabled, getDisplaySchedule } from '../src/scheduler.js'
 import { sync, uninstallAll, listInstalledPlists } from '../src/launchd.js'
 import { spawn } from 'child_process'
-import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, colorizeLine, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
+import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, colorizeLine, logRunner, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
 import { getRegistry, registerFile, unregisterFile, loadAllJobs, findJob, getAllJobsFlat } from '../src/registry.js'
 import { clearStaleLock } from '../src/lock.js'
 import * as p from '@clack/prompts'
@@ -116,7 +116,7 @@ program
       }
       const { job } = result
       if (options.scheduled && !isEnabled(job)) {
-        console.log(`Job "${jobId}" is disabled, skipping`)
+        await logRunner(`Skipped - job is disabled`, jobId)
         return
       }
       await runJobNow(job, { scheduled: options.scheduled })
