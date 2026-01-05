@@ -51,19 +51,36 @@ program
         console.log(`✓ ${jobId} completed`)
       }
     } else {
-      console.error('Error: Job ID required\n')
+      // Interactive single select
       const allJobs = await getAllJobsFlat()
-      if (allJobs.length > 0) {
-        console.error('Available jobs:')
-        for (const job of allJobs) {
-          const status = isEnabled(job) ? '✓' : '✗'
-          console.error(`  ${status} ${job.id}`)
-        }
-      } else {
+      if (allJobs.length === 0) {
         console.error('No jobs registered. Run: cron-burgundy sync <path/to/jobs.js>')
+        process.exit(1)
       }
-      console.error('\nUsage: cron-burgundy run <jobId>')
-      process.exit(1)
+
+      const enabledJobs = allJobs.filter(j => isEnabled(j))
+      if (enabledJobs.length === 0) {
+        console.log('No enabled jobs to run')
+        return
+      }
+
+      const selected = await p.select({
+        message: 'Select job to run',
+        options: enabledJobs.map(j => ({
+          value: j.id,
+          label: j.id,
+          hint: j.description
+        }))
+      })
+
+      if (p.isCancel(selected)) {
+        console.log('Cancelled')
+        return
+      }
+
+      const { job } = await findJob(selected)
+      await runJobNow(job, { scheduled: false })
+      console.log(`✓ ${selected} completed`)
     }
   })
 
