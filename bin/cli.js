@@ -193,11 +193,13 @@ logsCmd
     }
 
     if (jobId) {
-      console.log(`\n=== Logs for: ${jobId} ===\n`)
+      console.log(`\n=== Logs for: ${jobId} ===`)
+      console.log(`${logPath}\n`)
       const log = await readJobLog(jobId, lines)
       console.log(log)
     } else {
-      console.log('\n=== Runner Log ===\n')
+      console.log('\n=== Runner Log ===')
+      console.log(`${RUNNER_LOG}\n`)
       const log = await readRunnerLog(lines)
       const colorized = log.split('\n').map(colorizeLine).join('\n')
       console.log(colorized)
