@@ -64,7 +64,7 @@ program
         return
       }
 
-      const selected = await p.select({
+      const selected = await p.autocomplete({
         message: 'Select job to run',
         options: enabledJobs.map(j => ({
           value: j.id,
