@@ -2,6 +2,17 @@
 
 Simple macOS cron manager with missed job recovery. Uses launchd for scheduling, catches up on missed jobs when your Mac wakes up.
 
+## Features
+
+- **Human-readable schedules** - `'every 5 minutes'`, `'daily at 9am'`, `'on weekdays at 8:30am'`
+- **Native launchd integration** - no daemon, each job gets its own plist
+- **Missed job recovery** - catches up on jobs missed during sleep
+- **Per-job logging** - separate log files for each job
+- **Pause/unpause** - temporarily disable jobs without removing them
+- **Built-in macOS utils** - notifications, text-to-speech, system sounds
+- **Lock files** - prevents concurrent runs of the same job
+- **Interactive CLI** - autocomplete job selection, multi-select for batch operations
+
 ## How It Works
 
 1. Each job gets its own **launchd plist** with its schedule
@@ -211,6 +222,8 @@ schedule: '15 2,14 * * *'  // 2:15am and 2:15pm daily
 ```
 
 ### Interval (milliseconds)
+
+The minimum interval is 10 seconds, per macOS launchd requirements.
 
 ```javascript
 interval: 60 * 1000           // Every minute
