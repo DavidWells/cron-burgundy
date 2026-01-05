@@ -368,6 +368,19 @@ program
         isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
       )
 
+      // Show currently paused jobs
+      const pausedJobs = pauseStatus.all
+        ? allJobs.filter(j => isEnabled(j))
+        : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
+
+      if (pausedJobs.length > 0) {
+        console.log('\nCurrently paused:')
+        for (const job of pausedJobs) {
+          console.log(`  - ${job.id}`)
+        }
+        console.log('')
+      }
+
       if (unpausedJobs.length === 0) {
         console.log('No jobs available to pause')
         return
@@ -432,6 +445,19 @@ program
       const pausedJobs = pauseStatus.all
         ? allJobs.filter(j => isEnabled(j))
         : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
+
+      // Show currently running jobs
+      const runningJobs = allJobs.filter(j =>
+        isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
+      )
+
+      if (runningJobs.length > 0) {
+        console.log('\nCurrently running:')
+        for (const job of runningJobs) {
+          console.log(`  - ${job.id}`)
+        }
+        console.log('')
+      }
 
       if (pausedJobs.length === 0) {
         console.log('No paused jobs to resume')
