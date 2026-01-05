@@ -1,6 +1,6 @@
 {
   "name": "cron-burgundy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Simple macOS cron manager with missed job recovery",
   "type": "module",
   "main": "src/index.js",
@@ -35,7 +35,9 @@
   "engines": {
     "node": ">=18"
   },
-  "os": ["darwin"],
+  "os": [
+    "darwin"
+  ],
   "dependencies": {
     "@clack/prompts": "1.0.0-alpha.9",
     "@davidwells/graceful-exit": "^0.0.2",
