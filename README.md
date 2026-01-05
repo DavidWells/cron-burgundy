@@ -1,6 +1,10 @@
 # cron-burgundy
 
-Simple macOS cron manager with missed job recovery. Uses launchd for scheduling, catches up on missed jobs when your Mac wakes up.
+> *"Stay scheduled, San Diego."*
+
+A classy macOS cron manager that never* misses a job. Uses native launchd for scheduling and catches up on anything missed while your Mac was asleep.
+
+<small>**"99% of the time, it runs every time"**. It won't run if your computer is off</small>
 
 ## Features
 
