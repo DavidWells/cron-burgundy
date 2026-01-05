@@ -17,7 +17,6 @@ const sounds = [
   'Basso',
   'Blow',
   'Bottle',
-  'Frog',
 ]
 
 /**
