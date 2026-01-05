@@ -46,23 +46,38 @@ System Settings → Focus → [Your Focus] → Allowed Apps → Add → Script E
 
 ## CLI Commands
 
-```bash
-# Job management
-cron-burgundy sync           # Sync jobs with launchd (install enabled, remove disabled)
-cron-burgundy list           # Show all jobs with status
-cron-burgundy run <jobId>    # Run a specific job immediately
-cron-burgundy uninstall      # Remove all launchd plists
-cron-burgundy status         # Show installed plists
+Available as `cron-burgundy` or `cronb`:
 
-# Logs
-cron-burgundy logs                      # View runner log
-cron-burgundy logs view <jobId>         # View specific job log
-cron-burgundy logs view -t              # Tail runner log
-cron-burgundy logs view <jobId> -t      # Tail job log
-cron-burgundy logs list                 # List all log file paths
-cron-burgundy logs clear                # Clear runner log
-cron-burgundy logs clear <jobId>        # Clear specific job log
-cron-burgundy logs clear all            # Clear all job logs
+```
+Usage: cronb [options] [command]
+
+Commands:
+  list                   List all registered jobs with status
+  run [options] [jobId]  Run a job manually (autocomplete if no arg)
+  logs                   View, list, or clear logs
+  pause [name]           Pause a job or all jobs (interactive if no arg)
+  unpause [name]         Unpause a job or all jobs (interactive if no arg)
+  sync [path]            Register and sync a job file, or sync all registered files
+  clear [target]         Unregister job files and remove from launchd (interactive if no arg)
+  status                 Check installed launchd plists
+  check-missed           Check and run any missed jobs (called on wake)
+
+Options:
+  -V, --version          output the version number
+  -h, --help             display help for command
+```
+
+### Logs subcommands
+
+```bash
+cronb logs                      # View runner log
+cronb logs view <jobId>         # View specific job log
+cronb logs view -t              # Tail runner log (follow)
+cronb logs view <jobId> -t      # Tail job log
+cronb logs list                 # List all log file paths
+cronb logs clear                # Clear runner log
+cronb logs clear <jobId>        # Clear specific job log
+cronb logs clear all            # Clear runner + all job logs
 ```
 
 ## Defining Jobs
@@ -75,14 +90,32 @@ export const jobs = [
     id: 'my-job',
     schedule: 'every 5 minutes',  // Human-readable or cron syntax
     enabled: true,                 // Optional, default: true
-    run: async (logger) => {
-      await logger.log('Starting...')
+    run: async ({ logger, utils, lastRun }) => {
+      logger.log('Starting...')
       // Your job logic here
-      await logger.log('Done!')
+      utils.notify('Job done', 'Completed successfully')
+      logger.log('Done!')
     }
   }
 ]
 ```
+
+### Available Utils
+
+Jobs receive a `utils` object with macOS helpers:
+
+```javascript
+utils.notify(title, message, { sound: true })  // macOS notification
+utils.speak('Hello world')                      // Text-to-speech
+utils.playSound('Ping')                         // System sound (Ping, Pop, Glass, Frog, etc.)
+```
+
+### Job Context
+
+The `run` function receives:
+- `logger` - Job-specific logger (`logger.log()`, `logger.error()`)
+- `utils` - macOS utilities (notify, speak, playSound)
+- `lastRun` - Date of last successful run (or null)
 
 ## Schedule Syntax
 

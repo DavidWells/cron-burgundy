@@ -5,7 +5,8 @@
   "type": "module",
   "main": "src/index.js",
   "bin": {
-    "cron-burgundy": "./bin/cli.js"
+    "cron-burgundy": "./bin/cli.js",
+    "cronb": "./bin/cli.js"
   },
   "scripts": {
     "start": "node src/runner.js",
