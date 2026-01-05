@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url'
 import plist from 'plist'
 import { normalizeSchedule } from './cron-parser.js'
 import { clearLock } from './lock.js'
+import { resume } from './state.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, '..')
@@ -264,10 +265,12 @@ export async function uninstallJob(jobId, options = {}) {
   try {
     await fs.unlink(plistPath)
     await clearLock(jobId)
+    await resume(jobId)  // Clear pause state
     console.log(`  ✗ ${jobId}${desc}`)
   } catch (err) {
     if (err.code === 'ENOENT') {
       await clearLock(jobId)
+      await resume(jobId)  // Clear pause state
       if (alwaysPrint) console.log(`  ✗ ${jobId}${desc}`)
     } else {
       throw err
