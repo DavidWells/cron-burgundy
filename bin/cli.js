@@ -10,6 +10,7 @@ import { spawn } from 'child_process'
 import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, colorizeLine, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
 import { getRegistry, registerFile, unregisterFile, loadAllJobs, findJob, getAllJobsFlat } from '../src/registry.js'
 import { clearStaleLock } from '../src/lock.js'
+import * as p from '@clack/prompts'
 
 const program = new Command()
 
@@ -354,53 +355,129 @@ logsCmd
 
 program
   .command('pause')
-  .argument('<name>', 'Job ID to pause, or "all" for all jobs')
-  .description('Pause a job or all jobs')
+  .argument('[name]', 'Job ID to pause, or "all" for all jobs')
+  .description('Pause a job or all jobs (interactive if no arg)')
   .action(async (name) => {
-    if (name !== 'all') {
+    let jobIds = []
+
+    if (!name) {
+      // Interactive multiselect
+      const allJobs = await getAllJobsFlat()
+      const pauseStatus = await getPauseStatus()
+      const unpausedJobs = allJobs.filter(j =>
+        isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
+      )
+
+      if (unpausedJobs.length === 0) {
+        console.log('No jobs available to pause')
+        return
+      }
+
+      const selected = await p.multiselect({
+        message: 'Select jobs to pause',
+        options: unpausedJobs.map(j => ({
+          value: j.id,
+          label: j.id,
+          hint: j.description
+        }))
+      })
+
+      if (p.isCancel(selected)) {
+        console.log('Cancelled')
+        return
+      }
+
+      jobIds = selected
+    } else if (name === 'all') {
+      const allJobs = await getAllJobsFlat()
+      jobIds = allJobs.map(j => j.id)
+      await pause('all')
+    } else {
       const result = await findJob(name)
       if (!result) {
         console.error(`Error: Job "${name}" not found`)
         process.exit(1)
       }
+      jobIds = [name]
     }
-    await pause(name)
-    // Clear stale locks for paused jobs
-    if (name === 'all') {
-      const allJobs = await getAllJobsFlat()
-      for (const job of allJobs) {
-        await clearStaleLock(job.id)
-      }
+
+    // Pause and clear stale locks
+    for (const id of jobIds) {
+      if (name !== 'all') await pause(id)
+      await clearStaleLock(id)
+    }
+
+    if (jobIds.length === 0) {
+      console.log('No jobs selected')
+    } else if (name === 'all') {
       console.log('✓ All jobs paused')
     } else {
-      await clearStaleLock(name)
-      console.log(`✓ Paused: ${name}`)
+      console.log(`✓ Paused: ${jobIds.join(', ')}`)
     }
   })
 
 program
   .command('resume')
-  .argument('<name>', 'Job ID to resume, or "all" for all jobs')
-  .description('Resume a paused job or all jobs')
+  .argument('[name]', 'Job ID to resume, or "all" for all jobs')
+  .description('Resume a paused job or all jobs (interactive if no arg)')
   .action(async (name) => {
-    if (name !== 'all') {
+    let jobIds = []
+
+    if (!name) {
+      // Interactive multiselect - show paused jobs
+      const allJobs = await getAllJobsFlat()
+      const pauseStatus = await getPauseStatus()
+
+      // If globally paused, show all enabled jobs
+      const pausedJobs = pauseStatus.all
+        ? allJobs.filter(j => isEnabled(j))
+        : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
+
+      if (pausedJobs.length === 0) {
+        console.log('No paused jobs to resume')
+        return
+      }
+
+      const selected = await p.multiselect({
+        message: 'Select jobs to resume',
+        options: pausedJobs.map(j => ({
+          value: j.id,
+          label: j.id,
+          hint: j.description
+        }))
+      })
+
+      if (p.isCancel(selected)) {
+        console.log('Cancelled')
+        return
+      }
+
+      jobIds = selected
+    } else if (name === 'all') {
+      const allJobs = await getAllJobsFlat()
+      jobIds = allJobs.map(j => j.id)
+      await resume('all')
+    } else {
       const result = await findJob(name)
       if (!result) {
         console.error(`Error: Job "${name}" not found`)
         process.exit(1)
       }
+      jobIds = [name]
     }
-    await resume(name)
-    // Clear stale locks so resumed jobs can run immediately
-    if (name === 'all') {
-      const allJobs = await getAllJobsFlat()
-      for (const job of allJobs) {
-        await clearStaleLock(job.id)
-      }
+
+    // Resume and clear stale locks
+    for (const id of jobIds) {
+      if (name !== 'all') await resume(id)
+      await clearStaleLock(id)
+    }
+
+    if (jobIds.length === 0) {
+      console.log('No jobs selected')
+    } else if (name === 'all') {
       console.log('✓ All jobs resumed')
     } else {
-      await clearStaleLock(name)
-      console.log(`✓ Resumed: ${name}`)
+      console.log(`✓ Resumed: ${jobIds.join(', ')}`)
     }
   })
 
