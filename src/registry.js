@@ -82,8 +82,9 @@ export async function unregisterFile(filePath) {
  */
 export async function loadJobsFromFile(filePath) {
   try {
-    const { jobs } = await import(filePath)
-    return { file: filePath, jobs: jobs || [] }
+    const mod = await import(filePath)
+    const jobs = mod.jobs || mod.default?.jobs || []
+    return { file: filePath, jobs }
   } catch (err) {
     return { file: filePath, jobs: [], error: err.message }
   }
