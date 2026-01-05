@@ -229,39 +229,89 @@ program
   })
 
 program
-  .command('uninstall')
-  .description('Remove all launchd plists for all registered jobs')
-  .action(async () => {
-    const allJobs = await getAllJobsFlat()
-    if (allJobs.length === 0) {
-      console.log('No jobs registered')
-      return
-    }
-    await uninstallAll(allJobs)
-  })
+  .command('clear')
+  .argument('[target]', 'Path to job file, or "all" to clear everything')
+  .description('Unregister job files and remove from launchd (interactive if no arg)')
+  .action(async (target) => {
+    if (target === 'all') {
+      // Clear everything
+      const allJobs = await getAllJobsFlat()
+      const registry = await getRegistry()
 
-program
-  .command('unregister')
-  .argument('<path>', 'Path to jobs.js file to unregister')
-  .description('Unregister a job file (also uninstalls its jobs from launchd)')
-  .action(async (filePath) => {
-    const absPath = path.resolve(filePath)
-
-    // Try to load and uninstall jobs first
-    try {
-      const { jobs } = await import(absPath)
-      if (jobs && Array.isArray(jobs)) {
-        await uninstallAll(jobs)
+      if (allJobs.length === 0 && registry.files.length === 0) {
+        console.log('Nothing to clear')
+        return
       }
-    } catch {
-      // File might not exist anymore, that's ok
-    }
 
-    const result = await unregisterFile(absPath)
-    if (result === 'removed') {
-      console.log(`✓ Unregistered: ${absPath}`)
+      if (allJobs.length > 0) {
+        await uninstallAll(allJobs)
+      }
+
+      for (const file of registry.files) {
+        await unregisterFile(file)
+      }
+
+      console.log(`\n✓ Cleared ${registry.files.length} file(s), ${allJobs.length} job(s)`)
+    } else if (target) {
+      // Clear specific file
+      const absPath = path.resolve(target)
+
+      try {
+        const { jobs } = await import(absPath)
+        if (jobs && Array.isArray(jobs)) {
+          await uninstallAll(jobs)
+        }
+      } catch {
+        // File might not exist anymore
+      }
+
+      const result = await unregisterFile(absPath)
+      if (result === 'removed') {
+        console.log(`✓ Cleared: ${absPath}`)
+      } else {
+        console.log(`Not registered: ${absPath}`)
+      }
     } else {
-      console.log(`  Not registered: ${absPath}`)
+      // Interactive multiselect
+      const registry = await getRegistry()
+
+      if (registry.files.length === 0) {
+        console.log('No job files registered')
+        return
+      }
+
+      const selected = await p.multiselect({
+        message: 'Select job files to clear',
+        options: registry.files.map(f => ({
+          value: f,
+          label: path.basename(f),
+          hint: path.dirname(f)
+        }))
+      })
+
+      if (p.isCancel(selected)) {
+        console.log('Cancelled')
+        return
+      }
+
+      if (selected.length === 0) {
+        console.log('No files selected')
+        return
+      }
+
+      for (const file of selected) {
+        try {
+          const { jobs } = await import(file)
+          if (jobs && Array.isArray(jobs)) {
+            await uninstallAll(jobs)
+          }
+        } catch {
+          // File might not exist
+        }
+        await unregisterFile(file)
+      }
+
+      console.log(`✓ Cleared ${selected.length} file(s)`)
     }
   })
 
@@ -519,12 +569,6 @@ async function handleResume(name) {
     console.log(`✓ Unpaused: ${jobIds.join(', ')}`)
   }
 }
-
-program
-  .command('resume')
-  .argument('[name]', 'Job ID to resume, or "all" for all jobs')
-  .description('Resume a paused job or all jobs (interactive if no arg)')
-  .action(handleResume)
 
 program
   .command('unpause')
