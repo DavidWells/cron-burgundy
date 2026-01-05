@@ -5,7 +5,7 @@ import os from 'os'
 import { onAnyExit } from '@davidwells/graceful-exit'
 
 const LOCK_DIR = path.join(os.homedir(), '.cron-burgundy', 'locks')
-const STALE_LOCK_MS = 60 * 60 * 1000 // 1 hour - consider lock stale after this
+const DEFAULT_STALE_LOCK_MS = 60 * 60 * 1000 // 1 hour default
 
 // Track active locks for cleanup on exit
 const activeLocks = new Set()
@@ -42,16 +42,26 @@ async function ensureLockDir() {
 /**
  * Check if a lock file exists and is not stale
  * @param {string} jobId
+ * @param {number} [staleLockMs] - Custom stale threshold (default: 1 hour)
  * @returns {Promise<boolean>}
  */
-async function isLocked(jobId) {
+async function isLocked(jobId, staleLockMs = DEFAULT_STALE_LOCK_MS) {
   const lockPath = getLockPath(jobId)
 
   try {
     const content = await fs.readFile(lockPath, 'utf8')
     const lockData = JSON.parse(content)
+    const stats = await fs.stat(lockPath)
+    const age = Date.now() - stats.mtimeMs
 
-    // Check if owning process is still alive
+    // If lock is old, remove it regardless of PID (handles PID reuse)
+    if (age > staleLockMs) {
+      console.log(`[${jobId}] Removing stale lock (${Math.round(age / 1000 / 60)}min old)`)
+      await fs.unlink(lockPath).catch(() => {})
+      return false
+    }
+
+    // Lock is recent - check if owning process is still alive
     if (lockData.pid) {
       try {
         // kill(pid, 0) checks if process exists without sending signal
@@ -72,16 +82,7 @@ async function isLocked(jobId) {
       }
     }
 
-    // Fall back to age-based stale detection
-    const stats = await fs.stat(lockPath)
-    const age = Date.now() - stats.mtimeMs
-
-    if (age > STALE_LOCK_MS) {
-      console.log(`[${jobId}] Removing stale lock (${Math.round(age / 1000 / 60)}min old)`)
-      await fs.unlink(lockPath).catch(() => {})
-      return false
-    }
-
+    // No PID in lock data but lock is recent - assume valid
     return true
   } catch (err) {
     if (err.code === 'ENOENT') return false
@@ -97,12 +98,13 @@ async function isLocked(jobId) {
 /**
  * Acquire a lock for a job
  * @param {string} jobId
+ * @param {{ staleLockMs?: number }} [options]
  * @returns {Promise<boolean>} True if lock acquired, false if already locked
  */
-export async function acquireLock(jobId) {
+export async function acquireLock(jobId, options = {}) {
   await ensureLockDir()
-  
-  if (await isLocked(jobId)) {
+
+  if (await isLocked(jobId, options.staleLockMs)) {
     return false
   }
   
@@ -159,10 +161,11 @@ export function releaseLockSync(jobId) {
  * Run a function with a lock - ensures only one instance runs at a time
  * @param {string} jobId
  * @param {() => Promise<void>} fn
+ * @param {{ staleLockMs?: number }} [options]
  * @returns {Promise<boolean>} True if ran, false if skipped due to lock
  */
-export async function withLock(jobId, fn) {
-  if (!await acquireLock(jobId)) {
+export async function withLock(jobId, fn, options = {}) {
+  if (!await acquireLock(jobId, options)) {
     console.log(`[${jobId}] Skipped - another instance is running (locked)`)
     return false
   }

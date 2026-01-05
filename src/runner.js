@@ -8,6 +8,20 @@ import { utils } from './actions/index.js'
  * @typedef {import('./scheduler.js').Job} Job
  */
 
+const DEFAULT_STALE_MS = 60 * 60 * 1000 // 1 hour
+
+/**
+ * Compute stale lock timeout for a job (3x interval, or 1 hour for cron)
+ * @param {Job} job
+ * @returns {number}
+ */
+function getStaleLockMs(job) {
+  if (job.interval) {
+    return Math.max(job.interval * 3, 30 * 1000) // 3x interval, min 30s
+  }
+  return DEFAULT_STALE_MS
+}
+
 /**
  * Run a single job if it's due
  * @param {Job} job
@@ -105,7 +119,8 @@ export async function runJobNow(job, options = {}) {
   }
 
   // Acquire lock - skip if another instance is already running
-  if (!await acquireLock(job.id)) {
+  const staleLockMs = getStaleLockMs(job)
+  if (!await acquireLock(job.id, { staleLockMs })) {
     console.log(`[${job.id}] Skipped - another instance is running (locked)`)
     return
   }
@@ -168,7 +183,8 @@ export async function checkMissed(jobs) {
     }
 
     // Acquire lock - skip if another instance is already running
-    if (!await acquireLock(job.id)) {
+    const staleLockMs = getStaleLockMs(job)
+    if (!await acquireLock(job.id, { staleLockMs })) {
       await logRunner(`Skipped - another instance is running (locked)`, job.id)
       skipped.push(job.id)
       continue
