@@ -114,14 +114,14 @@ export async function runAllDue(jobs) {
 export async function runJobNow(job, options = {}) {
   // Check if paused (only for scheduled runs - manual runs bypass pause)
   if (options.scheduled && await isPaused(job.id)) {
-    console.log(`[${job.id}] Skipped - job is paused`)
+    await logRunner(`Skipped - job is paused`, job.id)
     return
   }
 
   // Acquire lock - skip if another instance is already running
   const staleLockMs = getStaleLockMs(job)
   if (!await acquireLock(job.id, { staleLockMs })) {
-    console.log(`[${job.id}] Skipped - another instance is running (locked)`)
+    await logRunner(`Skipped - another instance is running (locked)`, job.id)
     return
   }
 
