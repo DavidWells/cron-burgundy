@@ -19,82 +19,7 @@ program
   .description('Simple macOS cron manager with missed job recovery')
   .version('1.0.0')
 
-program
-  .command('run')
-  .argument('[jobId]', 'Job ID to run immediately')
-  .option('-s, --scheduled', 'Mark as scheduled run (updates nextRun in state)')
-  .description('Run a specific job by ID (called by launchd)')
-  .action(async (jobId, options) => {
-    if (jobId) {
-      const result = await findJob(jobId)
-      if (!result) {
-        console.error(`Error: Job "${jobId}" not found\n`)
-        const allJobs = await getAllJobsFlat()
-        if (allJobs.length > 0) {
-          console.error('Available jobs:')
-          for (const job of allJobs) {
-            const status = isEnabled(job) ? '✓' : '✗'
-            console.error(`  ${status} ${job.id}`)
-          }
-        } else {
-          console.error('No jobs registered. Run: cron-burgundy sync <path/to/jobs.js>')
-        }
-        process.exit(1)
-      }
-      const { job } = result
-      if (options.scheduled && !isEnabled(job)) {
-        console.log(`Job "${jobId}" is disabled, skipping`)
-        return
-      }
-      await runJobNow(job, { scheduled: options.scheduled })
-      if (!options.scheduled) {
-        console.log(`✓ ${jobId} completed`)
-      }
-    } else {
-      // Interactive single select
-      const allJobs = await getAllJobsFlat()
-      if (allJobs.length === 0) {
-        console.error('No jobs registered. Run: cron-burgundy sync <path/to/jobs.js>')
-        process.exit(1)
-      }
-
-      const enabledJobs = allJobs.filter(j => isEnabled(j))
-      if (enabledJobs.length === 0) {
-        console.log('No enabled jobs to run')
-        return
-      }
-
-      const selected = await p.autocomplete({
-        message: 'Select job to run',
-        options: enabledJobs.map(j => ({
-          value: j.id,
-          label: j.id,
-          hint: j.description
-        }))
-      })
-
-      if (p.isCancel(selected)) {
-        console.log('Cancelled')
-        return
-      }
-
-      const { job } = await findJob(selected)
-      await runJobNow(job, { scheduled: false })
-      console.log(`✓ ${selected} completed`)
-    }
-  })
-
-program
-  .command('check-missed')
-  .description('Check and run any missed jobs (called by launchd on wake)')
-  .action(async () => {
-    const allJobs = await getAllJobsFlat()
-    if (allJobs.length === 0) {
-      console.log('No jobs registered')
-      return
-    }
-    await checkMissed(allJobs)
-  })
+// === Primary commands ===
 
 program
   .command('list')
@@ -166,6 +91,316 @@ program
     console.log(`Total: ${totalJobs} jobs (${totalEnabled} enabled, ${totalDisabled} disabled, ${pausedCount} paused)`)
     console.log(`Files: ${sources.length} registered`)
   })
+
+program
+  .command('run')
+  .argument('[jobId]', 'Job ID to run immediately')
+  .option('-s, --scheduled', 'Mark as scheduled run (updates nextRun in state)')
+  .description('Run a job manually (autocomplete if no arg)')
+  .action(async (jobId, options) => {
+    if (jobId) {
+      const result = await findJob(jobId)
+      if (!result) {
+        console.error(`Error: Job "${jobId}" not found\n`)
+        const allJobs = await getAllJobsFlat()
+        if (allJobs.length > 0) {
+          console.error('Available jobs:')
+          for (const job of allJobs) {
+            const status = isEnabled(job) ? '✓' : '✗'
+            console.error(`  ${status} ${job.id}`)
+          }
+        } else {
+          console.error('No jobs registered. Run: cron-burgundy sync <path/to/jobs.js>')
+        }
+        process.exit(1)
+      }
+      const { job } = result
+      if (options.scheduled && !isEnabled(job)) {
+        console.log(`Job "${jobId}" is disabled, skipping`)
+        return
+      }
+      await runJobNow(job, { scheduled: options.scheduled })
+      if (!options.scheduled) {
+        console.log(`✓ ${jobId} completed`)
+      }
+    } else {
+      // Interactive single select
+      const allJobs = await getAllJobsFlat()
+      if (allJobs.length === 0) {
+        console.error('No jobs registered. Run: cron-burgundy sync <path/to/jobs.js>')
+        process.exit(1)
+      }
+
+      const enabledJobs = allJobs.filter(j => isEnabled(j))
+      if (enabledJobs.length === 0) {
+        console.log('No enabled jobs to run')
+        return
+      }
+
+      const selected = await p.autocomplete({
+        message: 'Select job to run',
+        options: enabledJobs.map(j => ({
+          value: j.id,
+          label: j.id,
+          hint: j.description
+        }))
+      })
+
+      if (p.isCancel(selected)) {
+        console.log('Cancelled')
+        return
+      }
+
+      const { job } = await findJob(selected)
+      await runJobNow(job, { scheduled: false })
+      console.log(`✓ ${selected} completed`)
+    }
+  })
+
+// logs command with subcommands
+const logsCmd = program
+  .command('logs')
+  .description('View, list, or clear logs')
+
+logsCmd
+  .command('view', { isDefault: true })
+  .argument('[jobId]', 'Job ID to view logs for (omit for runner log)')
+  .option('-n, --lines <number>', 'Number of lines to show', '50')
+  .option('-t, --tail', 'Follow log file (tail -f)')
+  .description('View logs (runner log or specific job log)')
+  .action(async (jobId, options) => {
+    const lines = parseInt(options.lines, 10)
+    const logPath = jobId
+      ? path.join(JOBS_LOG_DIR, `${jobId}.log`)
+      : RUNNER_LOG
+
+    if (options.tail) {
+      // Show job schedule info if tailing a specific job
+      if (jobId) {
+        const result = await findJob(jobId)
+        if (result) {
+          console.log(`\nSchedule: ${getDisplaySchedule(result.job)}`)
+        }
+      }
+      console.log(`\n=== Tailing: ${logPath} ===\n`)
+      console.log('(Press Ctrl+C to stop)\n')
+      const tail = spawn('tail', ['-f', '-n', '0', logPath], { stdio: 'inherit' })
+      tail.on('error', (err) => {
+        console.error(`Error: ${err.message}`)
+        process.exit(1)
+      })
+      return
+    }
+
+    if (jobId) {
+      console.log(`\n=== Logs for: ${jobId} ===\n`)
+      const log = await readJobLog(jobId, lines)
+      console.log(log)
+    } else {
+      console.log('\n=== Runner Log ===\n')
+      const log = await readRunnerLog(lines)
+      const colorized = log.split('\n').map(colorizeLine).join('\n')
+      console.log(colorized)
+    }
+  })
+
+logsCmd
+  .command('list')
+  .description('List all log file paths')
+  .action(async () => {
+    const logs = await listLogFiles()
+
+    console.log('\n=== Log Files ===\n')
+    console.log(`Runner log:`)
+    console.log(`  ${logs.runner}`)
+
+    if (logs.jobs.length > 0) {
+      console.log(`\nJob logs:`)
+      for (const job of logs.jobs) {
+        console.log(`  ${job.id}: ${job.path}`)
+      }
+    } else {
+      console.log(`\nNo job logs yet`)
+    }
+  })
+
+logsCmd
+  .command('clear')
+  .argument('[name]', 'Job ID to clear, "all" for all job logs, omit for runner log')
+  .description('Clear logs')
+  .action(async (name) => {
+    if (name === 'all') {
+      const cleared = await clearAllJobLogs()
+      console.log(`✓ Cleared ${cleared.length} job logs`)
+      if (cleared.length > 0) {
+        cleared.forEach(id => console.log(`  - ${id}`))
+      }
+    } else if (name) {
+      await clearJobLog(name)
+      console.log(`✓ Cleared logs for: ${name}`)
+    } else {
+      await clearRunnerLog()
+      console.log('✓ Cleared runner log')
+    }
+  })
+
+program
+  .command('pause')
+  .argument('[name]', 'Job ID to pause, or "all" for all jobs')
+  .description('Pause a job or all jobs (interactive if no arg)')
+  .action(async (name) => {
+    let jobIds = []
+
+    if (!name) {
+      // Interactive multiselect
+      const allJobs = await getAllJobsFlat()
+      const pauseStatus = await getPauseStatus()
+      const unpausedJobs = allJobs.filter(j =>
+        isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
+      )
+
+      // Show currently paused jobs
+      const pausedJobs = pauseStatus.all
+        ? allJobs.filter(j => isEnabled(j))
+        : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
+
+      if (pausedJobs.length > 0) {
+        console.log('\nCurrently paused:')
+        for (const job of pausedJobs) {
+          console.log(`  - ${job.id}`)
+        }
+        console.log('')
+      }
+
+      if (unpausedJobs.length === 0) {
+        console.log('No jobs available to pause')
+        return
+      }
+
+      const selected = await p.multiselect({
+        message: 'Select jobs to pause',
+        options: unpausedJobs.map(j => ({
+          value: j.id,
+          label: j.id,
+          hint: j.description
+        }))
+      })
+
+      if (p.isCancel(selected)) {
+        console.log('Cancelled')
+        return
+      }
+
+      jobIds = selected
+    } else if (name === 'all') {
+      const allJobs = await getAllJobsFlat()
+      jobIds = allJobs.map(j => j.id)
+      await pause('all')
+    } else {
+      const result = await findJob(name)
+      if (!result) {
+        console.error(`Error: Job "${name}" not found`)
+        process.exit(1)
+      }
+      jobIds = [name]
+    }
+
+    // Pause and clear stale locks
+    for (const id of jobIds) {
+      if (name !== 'all') await pause(id)
+      await clearStaleLock(id)
+    }
+
+    if (jobIds.length === 0) {
+      console.log('No jobs selected')
+    } else if (name === 'all') {
+      console.log('✓ All jobs paused')
+    } else {
+      console.log(`✓ Paused: ${jobIds.join(', ')}`)
+    }
+  })
+
+async function handleUnpause(name) {
+  let jobIds = []
+
+  if (!name) {
+    // Interactive multiselect - show paused jobs
+    const allJobs = await getAllJobsFlat()
+    const pauseStatus = await getPauseStatus()
+
+    // If globally paused, show all enabled jobs
+    const pausedJobs = pauseStatus.all
+      ? allJobs.filter(j => isEnabled(j))
+      : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
+
+    // Show currently running jobs
+    const runningJobs = allJobs.filter(j =>
+      isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
+    )
+
+    if (runningJobs.length > 0) {
+      console.log('\nCurrently running:')
+      for (const job of runningJobs) {
+        console.log(`  - ${job.id}`)
+      }
+      console.log('')
+    }
+
+    if (pausedJobs.length === 0) {
+      console.log('No paused jobs to unpause')
+      return
+    }
+
+    const selected = await p.multiselect({
+      message: 'Select jobs to unpause',
+      options: pausedJobs.map(j => ({
+        value: j.id,
+        label: j.id,
+        hint: j.description
+      }))
+    })
+
+    if (p.isCancel(selected)) {
+      console.log('Cancelled')
+      return
+    }
+
+    jobIds = selected
+  } else if (name === 'all') {
+    const allJobs = await getAllJobsFlat()
+    jobIds = allJobs.map(j => j.id)
+    await resume('all')
+  } else {
+    const result = await findJob(name)
+    if (!result) {
+      console.error(`Error: Job "${name}" not found`)
+      process.exit(1)
+    }
+    jobIds = [name]
+  }
+
+  // Resume and clear stale locks
+  for (const id of jobIds) {
+    if (name !== 'all') await resume(id)
+    await clearStaleLock(id)
+  }
+
+  if (jobIds.length === 0) {
+    console.log('No jobs selected')
+  } else if (name === 'all') {
+    console.log('✓ All jobs unpaused')
+  } else {
+    console.log(`✓ Unpaused: ${jobIds.join(', ')}`)
+  }
+}
+
+program
+  .command('unpause')
+  .argument('[name]', 'Job ID to unpause, or "all" for all jobs')
+  .description('Unpause a job or all jobs (interactive if no arg)')
+  .action(handleUnpause)
+
+// === Setup commands ===
 
 program
   .command('sync')
@@ -315,16 +550,18 @@ program
     }
   })
 
+// === System commands ===
+
 program
   .command('status')
   .description('Check installed launchd plists')
   .action(async () => {
     const plists = await listInstalledPlists()
-    
+
     if (plists.length > 0) {
       console.log('\n=== Installed Plists ===\n')
-      for (const p of plists) {
-        console.log(`  ${p}`)
+      for (const plist of plists) {
+        console.log(`  ${plist}`)
       }
       console.log(`\nTotal: ${plists.length} plists`)
     } else {
@@ -333,247 +570,16 @@ program
     }
   })
 
-// logs command with subcommands
-const logsCmd = program
-  .command('logs')
-  .description('View, list, or clear logs')
-
-logsCmd
-  .command('view', { isDefault: true })
-  .argument('[jobId]', 'Job ID to view logs for (omit for runner log)')
-  .option('-n, --lines <number>', 'Number of lines to show', '50')
-  .option('-t, --tail', 'Follow log file (tail -f)')
-  .description('View logs (runner log or specific job log)')
-  .action(async (jobId, options) => {
-    const lines = parseInt(options.lines, 10)
-    const logPath = jobId 
-      ? path.join(JOBS_LOG_DIR, `${jobId}.log`)
-      : RUNNER_LOG
-    
-    if (options.tail) {
-      // Show job schedule info if tailing a specific job
-      if (jobId) {
-        const result = await findJob(jobId)
-        if (result) {
-          console.log(`\nSchedule: ${getDisplaySchedule(result.job)}`)
-        }
-      }
-      console.log(`\n=== Tailing: ${logPath} ===\n`)
-      console.log('(Press Ctrl+C to stop)\n')
-      const tail = spawn('tail', ['-f', '-n', '0', logPath], { stdio: 'inherit' })
-      tail.on('error', (err) => {
-        console.error(`Error: ${err.message}`)
-        process.exit(1)
-      })
-      return
-    }
-    
-    if (jobId) {
-      console.log(`\n=== Logs for: ${jobId} ===\n`)
-      const log = await readJobLog(jobId, lines)
-      console.log(log)
-    } else {
-      console.log('\n=== Runner Log ===\n')
-      const log = await readRunnerLog(lines)
-      const colorized = log.split('\n').map(colorizeLine).join('\n')
-      console.log(colorized)
-    }
-  })
-
-logsCmd
-  .command('list')
-  .description('List all log file paths')
+program
+  .command('check-missed')
+  .description('Check and run any missed jobs (called by launchd on wake)')
   .action(async () => {
-    const logs = await listLogFiles()
-    
-    console.log('\n=== Log Files ===\n')
-    console.log(`Runner log:`)
-    console.log(`  ${logs.runner}`)
-    
-    if (logs.jobs.length > 0) {
-      console.log(`\nJob logs:`)
-      for (const job of logs.jobs) {
-        console.log(`  ${job.id}: ${job.path}`)
-      }
-    } else {
-      console.log(`\nNo job logs yet`)
-    }
-  })
-
-logsCmd
-  .command('clear')
-  .argument('[name]', 'Job ID to clear, "all" for all job logs, omit for runner log')
-  .description('Clear logs')
-  .action(async (name) => {
-    if (name === 'all') {
-      const cleared = await clearAllJobLogs()
-      console.log(`✓ Cleared ${cleared.length} job logs`)
-      if (cleared.length > 0) {
-        cleared.forEach(id => console.log(`  - ${id}`))
-      }
-    } else if (name) {
-      await clearJobLog(name)
-      console.log(`✓ Cleared logs for: ${name}`)
-    } else {
-      await clearRunnerLog()
-      console.log('✓ Cleared runner log')
-    }
-  })
-
-program
-  .command('pause')
-  .argument('[name]', 'Job ID to pause, or "all" for all jobs')
-  .description('Pause a job or all jobs (interactive if no arg)')
-  .action(async (name) => {
-    let jobIds = []
-
-    if (!name) {
-      // Interactive multiselect
-      const allJobs = await getAllJobsFlat()
-      const pauseStatus = await getPauseStatus()
-      const unpausedJobs = allJobs.filter(j =>
-        isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
-      )
-
-      // Show currently paused jobs
-      const pausedJobs = pauseStatus.all
-        ? allJobs.filter(j => isEnabled(j))
-        : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
-
-      if (pausedJobs.length > 0) {
-        console.log('\nCurrently paused:')
-        for (const job of pausedJobs) {
-          console.log(`  - ${job.id}`)
-        }
-        console.log('')
-      }
-
-      if (unpausedJobs.length === 0) {
-        console.log('No jobs available to pause')
-        return
-      }
-
-      const selected = await p.multiselect({
-        message: 'Select jobs to pause',
-        options: unpausedJobs.map(j => ({
-          value: j.id,
-          label: j.id,
-          hint: j.description
-        }))
-      })
-
-      if (p.isCancel(selected)) {
-        console.log('Cancelled')
-        return
-      }
-
-      jobIds = selected
-    } else if (name === 'all') {
-      const allJobs = await getAllJobsFlat()
-      jobIds = allJobs.map(j => j.id)
-      await pause('all')
-    } else {
-      const result = await findJob(name)
-      if (!result) {
-        console.error(`Error: Job "${name}" not found`)
-        process.exit(1)
-      }
-      jobIds = [name]
-    }
-
-    // Pause and clear stale locks
-    for (const id of jobIds) {
-      if (name !== 'all') await pause(id)
-      await clearStaleLock(id)
-    }
-
-    if (jobIds.length === 0) {
-      console.log('No jobs selected')
-    } else if (name === 'all') {
-      console.log('✓ All jobs paused')
-    } else {
-      console.log(`✓ Paused: ${jobIds.join(', ')}`)
-    }
-  })
-
-async function handleResume(name) {
-  let jobIds = []
-
-  if (!name) {
-    // Interactive multiselect - show paused jobs
     const allJobs = await getAllJobsFlat()
-    const pauseStatus = await getPauseStatus()
-
-    // If globally paused, show all enabled jobs
-    const pausedJobs = pauseStatus.all
-      ? allJobs.filter(j => isEnabled(j))
-      : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
-
-    // Show currently running jobs
-    const runningJobs = allJobs.filter(j =>
-      isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
-    )
-
-    if (runningJobs.length > 0) {
-      console.log('\nCurrently running:')
-      for (const job of runningJobs) {
-        console.log(`  - ${job.id}`)
-      }
-      console.log('')
-    }
-
-    if (pausedJobs.length === 0) {
-      console.log('No paused jobs to resume')
+    if (allJobs.length === 0) {
+      console.log('No jobs registered')
       return
     }
-
-    const selected = await p.multiselect({
-      message: 'Select jobs to unpause',
-      options: pausedJobs.map(j => ({
-        value: j.id,
-        label: j.id,
-        hint: j.description
-      }))
-    })
-
-    if (p.isCancel(selected)) {
-      console.log('Cancelled')
-      return
-    }
-
-    jobIds = selected
-  } else if (name === 'all') {
-    const allJobs = await getAllJobsFlat()
-    jobIds = allJobs.map(j => j.id)
-    await resume('all')
-  } else {
-    const result = await findJob(name)
-    if (!result) {
-      console.error(`Error: Job "${name}" not found`)
-      process.exit(1)
-    }
-    jobIds = [name]
-  }
-
-  // Resume and clear stale locks
-  for (const id of jobIds) {
-    if (name !== 'all') await resume(id)
-    await clearStaleLock(id)
-  }
-
-  if (jobIds.length === 0) {
-    console.log('No jobs selected')
-  } else if (name === 'all') {
-    console.log('✓ All jobs unpaused')
-  } else {
-    console.log(`✓ Unpaused: ${jobIds.join(', ')}`)
-  }
-}
-
-program
-  .command('unpause')
-  .argument('[name]', 'Job ID to unpause, or "all" for all jobs')
-  .description('Unpause a job or all jobs (interactive if no arg)')
-  .action(handleResume)
+    await checkMissed(allJobs)
+  })
 
 program.parse()
