@@ -2,8 +2,12 @@ import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { execSync } from 'child_process'
+import { fileURLToPath } from 'url'
 import plist from 'plist'
 import { normalizeSchedule } from './cron-parser.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const PROJECT_ROOT = path.resolve(__dirname, '..')
 
 /**
  * Ensure we're running on macOS
@@ -130,20 +134,20 @@ function cronToCalendarInterval(cronExpr) {
 /**
  * Generate plist config for a specific job
  * @param {import('./scheduler.js').Job} job
- * @param {string} projectPath
+ * @param {string} jobFileDir - directory containing the job file (used as WorkingDirectory)
  * @returns {Object}
  */
-export function generateJobPlistConfig(job, projectPath) {
+export function generateJobPlistConfig(job, jobFileDir) {
   const nodePath = getNodePath()
-  const cliPath = path.join(projectPath, 'bin', 'cli.js')
+  const cliPath = path.join(PROJECT_ROOT, 'bin', 'cli.js')
   const logDir = path.join(os.homedir(), '.cron-burgundy')
-  
+
   const config = {
     Label: `${LABEL_PREFIX}.job.${job.id}`,
     ProgramArguments: [nodePath, cliPath, 'run', '--scheduled', job.id],
     StandardOutPath: path.join(logDir, 'runner.log'),
     StandardErrorPath: path.join(logDir, 'runner.error.log'),
-    WorkingDirectory: projectPath,
+    WorkingDirectory: jobFileDir,
     EnvironmentVariables: {
       PATH: `${path.dirname(nodePath)}:/usr/local/bin:/usr/bin:/bin`
     }
@@ -165,21 +169,20 @@ export function generateJobPlistConfig(job, projectPath) {
 
 /**
  * Generate plist config for wake checker (runs on login/wake to catch missed jobs)
- * @param {string} projectPath
  * @returns {Object}
  */
-export function generateWakeCheckerPlistConfig(projectPath) {
+export function generateWakeCheckerPlistConfig() {
   const nodePath = getNodePath()
-  const cliPath = path.join(projectPath, 'bin', 'cli.js')
+  const cliPath = path.join(PROJECT_ROOT, 'bin', 'cli.js')
   const logDir = path.join(os.homedir(), '.cron-burgundy')
-  
+
   return {
     Label: WAKE_CHECKER_LABEL,
     ProgramArguments: [nodePath, cliPath, 'check-missed'],
     RunAtLoad: true,  // Run on login/wake
     StandardOutPath: path.join(logDir, 'runner.log'),
     StandardErrorPath: path.join(logDir, 'runner.error.log'),
-    WorkingDirectory: projectPath,
+    WorkingDirectory: PROJECT_ROOT,
     EnvironmentVariables: {
       PATH: `${path.dirname(nodePath)}:/usr/local/bin:/usr/bin:/bin`
     }
@@ -271,14 +274,13 @@ export async function uninstallJob(jobId, options = {}) {
 
 /**
  * Install the wake checker plist
- * @param {string} projectPath
  */
-export async function installWakeChecker(projectPath) {
+export async function installWakeChecker() {
   requireMacOS()
   await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
-  
+
   const plistPath = getWakeCheckerPlistPath()
-  const config = generateWakeCheckerPlistConfig(projectPath)
+  const config = generateWakeCheckerPlistConfig()
   const xml = plist.build(config)
   
   unloadPlist(plistPath)
