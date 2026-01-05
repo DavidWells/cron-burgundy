@@ -429,82 +429,90 @@ program
     }
   })
 
+async function handleResume(name) {
+  let jobIds = []
+
+  if (!name) {
+    // Interactive multiselect - show paused jobs
+    const allJobs = await getAllJobsFlat()
+    const pauseStatus = await getPauseStatus()
+
+    // If globally paused, show all enabled jobs
+    const pausedJobs = pauseStatus.all
+      ? allJobs.filter(j => isEnabled(j))
+      : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
+
+    // Show currently running jobs
+    const runningJobs = allJobs.filter(j =>
+      isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
+    )
+
+    if (runningJobs.length > 0) {
+      console.log('\nCurrently running:')
+      for (const job of runningJobs) {
+        console.log(`  - ${job.id}`)
+      }
+      console.log('')
+    }
+
+    if (pausedJobs.length === 0) {
+      console.log('No paused jobs to resume')
+      return
+    }
+
+    const selected = await p.multiselect({
+      message: 'Select jobs to unpause',
+      options: pausedJobs.map(j => ({
+        value: j.id,
+        label: j.id,
+        hint: j.description
+      }))
+    })
+
+    if (p.isCancel(selected)) {
+      console.log('Cancelled')
+      return
+    }
+
+    jobIds = selected
+  } else if (name === 'all') {
+    const allJobs = await getAllJobsFlat()
+    jobIds = allJobs.map(j => j.id)
+    await resume('all')
+  } else {
+    const result = await findJob(name)
+    if (!result) {
+      console.error(`Error: Job "${name}" not found`)
+      process.exit(1)
+    }
+    jobIds = [name]
+  }
+
+  // Resume and clear stale locks
+  for (const id of jobIds) {
+    if (name !== 'all') await resume(id)
+    await clearStaleLock(id)
+  }
+
+  if (jobIds.length === 0) {
+    console.log('No jobs selected')
+  } else if (name === 'all') {
+    console.log('✓ All jobs unpaused')
+  } else {
+    console.log(`✓ Unpaused: ${jobIds.join(', ')}`)
+  }
+}
+
 program
   .command('resume')
   .argument('[name]', 'Job ID to resume, or "all" for all jobs')
   .description('Resume a paused job or all jobs (interactive if no arg)')
-  .action(async (name) => {
-    let jobIds = []
+  .action(handleResume)
 
-    if (!name) {
-      // Interactive multiselect - show paused jobs
-      const allJobs = await getAllJobsFlat()
-      const pauseStatus = await getPauseStatus()
-
-      // If globally paused, show all enabled jobs
-      const pausedJobs = pauseStatus.all
-        ? allJobs.filter(j => isEnabled(j))
-        : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
-
-      // Show currently running jobs
-      const runningJobs = allJobs.filter(j =>
-        isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
-      )
-
-      if (runningJobs.length > 0) {
-        console.log('\nCurrently running:')
-        for (const job of runningJobs) {
-          console.log(`  - ${job.id}`)
-        }
-        console.log('')
-      }
-
-      if (pausedJobs.length === 0) {
-        console.log('No paused jobs to resume')
-        return
-      }
-
-      const selected = await p.multiselect({
-        message: 'Select jobs to resume',
-        options: pausedJobs.map(j => ({
-          value: j.id,
-          label: j.id,
-          hint: j.description
-        }))
-      })
-
-      if (p.isCancel(selected)) {
-        console.log('Cancelled')
-        return
-      }
-
-      jobIds = selected
-    } else if (name === 'all') {
-      const allJobs = await getAllJobsFlat()
-      jobIds = allJobs.map(j => j.id)
-      await resume('all')
-    } else {
-      const result = await findJob(name)
-      if (!result) {
-        console.error(`Error: Job "${name}" not found`)
-        process.exit(1)
-      }
-      jobIds = [name]
-    }
-
-    // Resume and clear stale locks
-    for (const id of jobIds) {
-      if (name !== 'all') await resume(id)
-      await clearStaleLock(id)
-    }
-
-    if (jobIds.length === 0) {
-      console.log('No jobs selected')
-    } else if (name === 'all') {
-      console.log('✓ All jobs resumed')
-    } else {
-      console.log(`✓ Resumed: ${jobIds.join(', ')}`)
-    }
-  })
+program
+  .command('unpause')
+  .argument('[name]', 'Job ID to unpause, or "all" for all jobs')
+  .description('Unpause a job or all jobs (interactive if no arg)')
+  .action(handleResume)
 
 program.parse()
