@@ -5,6 +5,16 @@ import { execSync } from 'child_process'
 import plist from 'plist'
 import { normalizeSchedule } from './cron-parser.js'
 
+/**
+ * Ensure we're running on macOS
+ * @throws {Error} if not on macOS
+ */
+function requireMacOS() {
+  if (process.platform !== 'darwin') {
+    throw new Error('cron-burgundy requires macOS (uses launchd for scheduling)')
+  }
+}
+
 const LABEL_PREFIX = 'com.cron-burgundy'
 const WAKE_CHECKER_LABEL = `${LABEL_PREFIX}.wakecheck`
 const LAUNCH_AGENTS_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents')
@@ -207,6 +217,7 @@ function unloadPlist(plistPath) {
  * @returns {Promise<'installed'|'unchanged'>}
  */
 export async function installJob(job, projectPath) {
+  requireMacOS()
   await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
 
   const plistPath = getJobPlistPath(job.id)
@@ -239,6 +250,7 @@ export async function installJob(job, projectPath) {
  * @param {{ alwaysPrint?: boolean, description?: string }} [options]
  */
 export async function uninstallJob(jobId, options = {}) {
+  requireMacOS()
   const { alwaysPrint = false, description } = options
   const plistPath = getJobPlistPath(jobId)
   const desc = description ? ` - ${description}` : ''
@@ -262,6 +274,7 @@ export async function uninstallJob(jobId, options = {}) {
  * @param {string} projectPath
  */
 export async function installWakeChecker(projectPath) {
+  requireMacOS()
   await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
   
   const plistPath = getWakeCheckerPlistPath()
@@ -279,6 +292,7 @@ export async function installWakeChecker(projectPath) {
  * Uninstall the wake checker plist
  */
 export async function uninstallWakeChecker() {
+  requireMacOS()
   const plistPath = getWakeCheckerPlistPath()
   
   unloadPlist(plistPath)
@@ -380,6 +394,7 @@ export async function uninstallAll(jobs) {
  * @returns {Promise<string[]>}
  */
 export async function listInstalledPlists() {
+  requireMacOS()
   try {
     const files = await fs.readdir(LAUNCH_AGENTS_DIR)
     return files.filter(f => f.startsWith(LABEL_PREFIX))
