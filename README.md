@@ -13,28 +13,46 @@ If your Mac was asleep when a job should have run, it fires on wake.
 ## Quick Start
 
 ```bash
-# 1. Install sleepwatcher for wake detection
+# Install globally
+npm install -g cron-burgundy
+
+# Create a jobs file
+cat > jobs.js << 'EOF'
+export const jobs = [
+  {
+    id: 'hello',
+    schedule: 'every 5 minutes',
+    run: ({ utils }) => utils.notify('Hello', 'Job ran!')
+  }
+]
+EOF
+
+# Register and sync to launchd
+cronb sync jobs.js
+
+# Done! Jobs run automatically on schedule
+```
+
+## Wake Detection Setup
+
+To catch up on missed jobs when your Mac wakes from sleep:
+
+```bash
+# 1. Install sleepwatcher
 brew install sleepwatcher
 
 # 2. Create ~/.wakeup script
 cat > ~/.wakeup << 'EOF'
 #!/bin/bash
-cd /path/to/cron-burgundy && node bin/cli.js check-missed
+cron-burgundy check-missed
 EOF
 chmod +x ~/.wakeup
 
-# 3. Start sleepwatcher
+# 3. Start sleepwatcher service
 brew services start sleepwatcher
-# Note: sleepwatcher may request "Input Monitoring" permission - this is NOT
-# required for ~/.wakeup to work. You can safely deny it.
-
-# 4. Define your jobs in jobs.js
-
-# 5. Sync to launchd
-node bin/cli.js sync
-
-# Done! Jobs run automatically
 ```
+
+Note: sleepwatcher may request "Input Monitoring" permission - this is NOT required for `~/.wakeup` to work. You can safely deny it.
 
 ### Focus Mode
 
@@ -214,7 +232,7 @@ Set `enabled: false` to disable a job, then run `sync`:
 ```
 
 ```bash
-node bin/cli.js sync  # Removes disabled job from launchd
+cronb sync  # Removes disabled job from launchd
 ```
 
 ## Files
