@@ -178,4 +178,61 @@ export async function withLock(jobId, fn, options = {}) {
   }
 }
 
+/**
+ * Forcefully clear a lock (for admin operations like unregister)
+ * @param {string} jobId
+ * @returns {Promise<boolean>} True if lock was cleared
+ */
+export async function clearLock(jobId) {
+  const lockPath = getLockPath(jobId)
+  try {
+    await fs.unlink(lockPath)
+    return true
+  } catch (err) {
+    if (err.code === 'ENOENT') return false
+    throw err
+  }
+}
+
+/**
+ * Clear a lock only if it's stale (PID dead)
+ * @param {string} jobId
+ * @returns {Promise<boolean>} True if stale lock was cleared
+ */
+export async function clearStaleLock(jobId) {
+  const lockPath = getLockPath(jobId)
+
+  try {
+    const content = await fs.readFile(lockPath, 'utf8')
+    const lockData = JSON.parse(content)
+
+    if (lockData.pid) {
+      try {
+        process.kill(lockData.pid, 0)
+        // Process is alive - don't clear
+        return false
+      } catch (err) {
+        if (err.code === 'ESRCH') {
+          // Process dead - clear stale lock
+          await fs.unlink(lockPath).catch(() => {})
+          return true
+        }
+        if (err.code === 'EPERM') {
+          // Process exists - don't clear
+          return false
+        }
+      }
+    }
+    return false
+  } catch (err) {
+    if (err.code === 'ENOENT') return false
+    if (err instanceof SyntaxError) {
+      // Corrupt lock file - clear it
+      await fs.unlink(lockPath).catch(() => {})
+      return true
+    }
+    throw err
+  }
+}
+
 export { LOCK_DIR }

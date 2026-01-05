@@ -9,6 +9,7 @@ import { sync, uninstallAll, listInstalledPlists } from '../src/launchd.js'
 import { spawn } from 'child_process'
 import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, colorizeLine, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
 import { getRegistry, registerFile, unregisterFile, loadAllJobs, findJob, getAllJobsFlat } from '../src/registry.js'
+import { clearStaleLock } from '../src/lock.js'
 
 const program = new Command()
 
@@ -356,10 +357,23 @@ program
   .argument('<name>', 'Job ID to pause, or "all" for all jobs')
   .description('Pause a job or all jobs')
   .action(async (name) => {
+    if (name !== 'all') {
+      const result = await findJob(name)
+      if (!result) {
+        console.error(`Error: Job "${name}" not found`)
+        process.exit(1)
+      }
+    }
     await pause(name)
+    // Clear stale locks for paused jobs
     if (name === 'all') {
+      const allJobs = await getAllJobsFlat()
+      for (const job of allJobs) {
+        await clearStaleLock(job.id)
+      }
       console.log('✓ All jobs paused')
     } else {
+      await clearStaleLock(name)
       console.log(`✓ Paused: ${name}`)
     }
   })
@@ -369,10 +383,23 @@ program
   .argument('<name>', 'Job ID to resume, or "all" for all jobs')
   .description('Resume a paused job or all jobs')
   .action(async (name) => {
+    if (name !== 'all') {
+      const result = await findJob(name)
+      if (!result) {
+        console.error(`Error: Job "${name}" not found`)
+        process.exit(1)
+      }
+    }
     await resume(name)
+    // Clear stale locks so resumed jobs can run immediately
     if (name === 'all') {
+      const allJobs = await getAllJobsFlat()
+      for (const job of allJobs) {
+        await clearStaleLock(job.id)
+      }
       console.log('✓ All jobs resumed')
     } else {
+      await clearStaleLock(name)
       console.log(`✓ Resumed: ${name}`)
     }
   })
