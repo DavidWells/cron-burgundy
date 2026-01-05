@@ -112,8 +112,8 @@ export async function runAllDue(jobs) {
  * @returns {Promise<void>}
  */
 export async function runJobNow(job, options = {}) {
-  // Check if paused
-  if (await isPaused(job.id)) {
+  // Check if paused (only for scheduled runs - manual runs bypass pause)
+  if (options.scheduled && await isPaused(job.id)) {
     console.log(`[${job.id}] Skipped - job is paused`)
     return
   }
