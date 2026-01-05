@@ -198,8 +198,16 @@ logsCmd
       const log = await readJobLog(jobId, lines)
       console.log(log)
     } else {
+      const logs = await listLogFiles()
       console.log('\n=== Runner Log ===')
-      console.log(`${RUNNER_LOG}\n`)
+      console.log(`${logs.runner}`)
+      if (logs.jobs.length > 0) {
+        console.log(`\n=== Job logs ===`)
+        for (const job of logs.jobs) {
+          console.log(`${job.path}`)
+        }
+      }
+      console.log('')
       const log = await readRunnerLog(lines)
       const colorized = log.split('\n').map(colorizeLine).join('\n')
       console.log(colorized)
@@ -228,12 +236,14 @@ logsCmd
 
 logsCmd
   .command('clear')
-  .argument('[name]', 'Job ID to clear, "all" for all job logs, omit for runner log')
+  .argument('[name]', 'Job ID to clear, "all" for everything, omit for runner log')
   .description('Clear logs')
   .action(async (name) => {
     if (name === 'all') {
+      await clearRunnerLog()
       const cleared = await clearAllJobLogs()
-      console.log(`✓ Cleared ${cleared.length} job logs`)
+      const jobsMessage = cleared.length > 0 ? ` and ${cleared.length} job logs` : ''
+      console.log(`✓ Cleared runner log${jobsMessage}`)
       if (cleared.length > 0) {
         cleared.forEach(id => console.log(`  - ${id}`))
       }

@@ -63,19 +63,13 @@ async function deleteLogWithRotations(filePath) {
 
 const SEPARATOR = '────────────────────────────────────────'
 
-// ANSI colors for job-id coloring (similar to npm debug)
+// Extended 256-color palette from debug-js/debug (avoids dark blues on black terminals)
 const COLORS = [
-  '\x1b[36m',  // cyan
-  '\x1b[33m',  // yellow
-  '\x1b[32m',  // green
-  '\x1b[35m',  // magenta
-  '\x1b[34m',  // blue
-  '\x1b[91m',  // bright red
-  '\x1b[92m',  // bright green
-  '\x1b[93m',  // bright yellow
-  '\x1b[94m',  // bright blue
-  '\x1b[95m',  // bright magenta
-  '\x1b[96m',  // bright cyan
+  20, 21, 26, 27, 32, 33, 38, 39, 40, 41, 42, 43, 44, 45, 56, 57, 62, 63, 68,
+  69, 74, 75, 76, 77, 78, 79, 80, 81, 92, 93, 98, 99, 112, 113, 128, 129, 134,
+  135, 148, 149, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171,
+  172, 173, 178, 179, 184, 185, 196, 197, 198, 199, 200, 201, 202, 203, 204,
+  205, 206, 207, 208, 209, 214, 215, 220, 221
 ]
 const RESET = '\x1b[0m'
 const DIM = '\x1b[2m'
@@ -91,7 +85,8 @@ function getJobColor(jobId) {
     hash = ((hash << 5) - hash) + jobId.charCodeAt(i)
     hash |= 0
   }
-  return COLORS[Math.abs(hash) % COLORS.length]
+  const colorCode = COLORS[Math.abs(hash) % COLORS.length]
+  return `\x1b[38;5;${colorCode}m`
 }
 
 /**
