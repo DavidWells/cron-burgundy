@@ -17,8 +17,20 @@
     "launchd",
     "scheduler"
   ],
-  "author": "",
-  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DavidWells/cron-burgundy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DavidWells/cron-burgundy/issues"
+  },
+  "homepage": "https://github.com/DavidWells/cron-burgundy#readme",
+  "author": "David Wells",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": ["darwin"],
   "dependencies": {
     "@clack/prompts": "1.0.0-alpha.9",
     "@davidwells/graceful-exit": "^0.0.2",

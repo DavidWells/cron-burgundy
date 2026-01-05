@@ -1,5 +1,10 @@
 # Development directories
 docs/
+.claude/
+.github/
+.cursor/
+.vscode/
+.idea/
 
 # Documentation files
 NOTES.md
@@ -13,11 +18,10 @@ NOTES.md
 # Test files
 tests/
 coverage/
+*.test.js
+src/test-fixtures/
 
 # Editor files
-.cursor/
-.vscode/
-.idea/
 *.swp
 *.swo
 
@@ -28,4 +32,7 @@ yarn-error.log*
 
 # Environment files
 .env*
-.env.* 
+.env.*
+
+# User job files
+jobs.js 
