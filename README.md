@@ -1,10 +1,9 @@
 # cron-burgundy
 
-> *"Stay scheduled, San Diego."*
-
 A classy macOS cron manager that never* misses a job. Uses native launchd for scheduling and catches up on anything missed while your Mac was asleep.
 
-<sup><sub>**"99% of the time, it runs every time"**. It won't run if your computer is off</sub></sup>
+> **"99% of the time, it runs every time."**
+> <sup><sub>It won't run if your computer is off</sub></sup>
 
 ## Features
 
