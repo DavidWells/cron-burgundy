@@ -2,6 +2,7 @@
 
 import { Command } from 'commander'
 import path from 'path'
+import fs from 'fs'
 import { runAllDue, runJobNow, checkMissed } from '../src/runner.js'
 import { getState, pause, resume, getPauseStatus, isPaused, getNextScheduledRun } from '../src/state.js'
 import { getIntervalMs, getNextRun, formatInterval, isEnabled, getDisplaySchedule } from '../src/scheduler.js'
@@ -28,6 +29,12 @@ program
     const sources = await loadAllJobs()
     const state = await getState()
     const pauseStatus = await getPauseStatus()
+    const installedPlists = await listInstalledPlists()
+    const installedJobIds = new Set(
+      installedPlists
+        .filter(f => f.startsWith('com.cron-burgundy.job.'))
+        .map(f => f.replace('com.cron-burgundy.job.', '').replace('.plist', ''))
+    )
 
     console.log('\n=== Registered Jobs ===\n')
 
@@ -44,6 +51,7 @@ program
     let totalJobs = 0
     let totalEnabled = 0
     let totalDisabled = 0
+    const unsyncedJobs = []
 
     for (const source of sources) {
       console.log(`${source.file}:`)
@@ -65,17 +73,26 @@ program
           ? await getNextScheduledRun(job.id)
           : getNextRun(job, lastRun)
         const jobPaused = pauseStatus.all || pauseStatus.jobs.includes(job.id)
-        const status = !isEnabled(job) ? '✗' : jobPaused ? '⏸' : '✓'
+        const isInstalled = installedJobIds.has(job.id)
+        const needsSync = isEnabled(job) && !isInstalled
+
+        const status = !isEnabled(job) ? '✗' : needsSync ? '⚠' : jobPaused ? '⏸' : '✓'
 
         console.log(`  ${status} ${job.id}`)
         if (job.description) {
           console.log(`     ${job.description}`)
         }
-        const statusText = !isEnabled(job) ? 'DISABLED' : jobPaused ? 'PAUSED' : 'enabled'
+        const statusText = !isEnabled(job)
+          ? 'DISABLED'
+          : needsSync
+            ? 'NOT SYNCED (run: cronb sync)'
+            : jobPaused
+              ? 'PAUSED'
+              : 'enabled'
         console.log(`     Status:   ${statusText}`)
         console.log(`     Schedule: ${getDisplaySchedule(job)}`)
         console.log(`     Last run: ${lastRun ? lastRun.toLocaleString() : 'never'}`)
-        if (isEnabled(job) && !jobPaused) {
+        if (isEnabled(job) && !jobPaused && !needsSync) {
           const nextDueStr = nextRun ? nextRun.toLocaleString() : (job.interval ? 'unknown' : 'now')
           console.log(`     Next due: ${nextDueStr}`)
         }
@@ -84,11 +101,15 @@ program
         totalJobs++
         if (isEnabled(job)) totalEnabled++
         else totalDisabled++
+        if (needsSync) unsyncedJobs.push(job.id)
       }
     }
 
     const pausedCount = pauseStatus.all ? totalEnabled : pauseStatus.jobs.length
     console.log(`Total: ${totalJobs} jobs (${totalEnabled} enabled, ${totalDisabled} disabled, ${pausedCount} paused)`)
+    if (unsyncedJobs.length > 0) {
+      console.log(`⚠ Not synced: ${unsyncedJobs.join(', ')} - run: cronb sync`)
+    }
     console.log(`Files: ${sources.length} registered`)
   })
 
@@ -181,6 +202,12 @@ logsCmd
         if (result) {
           console.log(`\nSchedule: ${getDisplaySchedule(result.job)}`)
         }
+      }
+      // Create empty log file if it doesn't exist
+      if (!fs.existsSync(logPath)) {
+        fs.mkdirSync(path.dirname(logPath), { recursive: true })
+        fs.writeFileSync(logPath, '')
+        console.log(`\n(Created empty log file - no entries yet)`)
       }
       console.log(`\n=== Tailing: ${logPath} ===\n`)
       console.log('(Press Ctrl+C to stop)\n')
