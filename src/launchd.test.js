@@ -3,7 +3,7 @@
  */
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
-import { expandCronField, cronToCalendarInterval, generateJobPlistConfig, MIN_INTERVAL_MS } from './launchd.js'
+import { expandCronField, cronToCalendarInterval, generateJobPlistConfig, MIN_INTERVAL_MS, getJobLabel, parsePlistFilename } from './launchd.js'
 
 // expandCronField tests
 test('expandCronField: wildcard returns null', () => {
@@ -178,6 +178,63 @@ test('generateJobPlistConfig: includes PATH with node bin', () => {
   assert.ok(config.EnvironmentVariables)
   assert.ok(config.EnvironmentVariables.PATH)
   assert.ok(config.EnvironmentVariables.PATH.includes('/usr/bin'))
+})
+
+// getJobLabel tests
+test('getJobLabel: without namespace', () => {
+  assert.equal(getJobLabel('my-job'), 'com.cron-burgundy.job.my-job')
+  assert.equal(getJobLabel('tick'), 'com.cron-burgundy.job.tick')
+})
+
+test('getJobLabel: with namespace', () => {
+  assert.equal(getJobLabel('tick', 'pm'), 'com.cron-burgundy.job.pm.tick')
+  assert.equal(getJobLabel('backup', 'app'), 'com.cron-burgundy.job.app.backup')
+})
+
+test('getJobLabel: null namespace same as no namespace', () => {
+  assert.equal(getJobLabel('my-job', null), 'com.cron-burgundy.job.my-job')
+})
+
+// generateJobPlistConfig with namespace tests
+test('generateJobPlistConfig: with namespace includes namespace in label', () => {
+  const job = { id: 'tick', interval: 60000 }
+  const config = generateJobPlistConfig(job, '/path', 'pm')
+  assert.equal(config.Label, 'com.cron-burgundy.job.pm.tick')
+})
+
+test('generateJobPlistConfig: with namespace uses qualified id in args', () => {
+  const job = { id: 'tick', interval: 60000 }
+  const config = generateJobPlistConfig(job, '/path', 'pm')
+  assert.ok(config.ProgramArguments.includes('pm/tick'))
+})
+
+// parsePlistFilename tests
+test('parsePlistFilename: job without namespace', () => {
+  const result = parsePlistFilename('com.cron-burgundy.job.my-job.plist')
+  assert.equal(result.namespace, null)
+  assert.equal(result.jobId, 'my-job')
+})
+
+test('parsePlistFilename: job with namespace', () => {
+  const result = parsePlistFilename('com.cron-burgundy.job.pm.tick.plist')
+  assert.equal(result.namespace, 'pm')
+  assert.equal(result.jobId, 'tick')
+})
+
+test('parsePlistFilename: returns null for non-job plists', () => {
+  assert.equal(parsePlistFilename('com.cron-burgundy.wakecheck.plist'), null)
+  assert.equal(parsePlistFilename('com.other.app.plist'), null)
+})
+
+test('parsePlistFilename: returns null for invalid format', () => {
+  assert.equal(parsePlistFilename('not-a-plist'), null)
+  assert.equal(parsePlistFilename('com.cron-burgundy.job.plist'), null)
+})
+
+test('parsePlistFilename: job id with hyphens (no namespace)', () => {
+  const result = parsePlistFilename('com.cron-burgundy.job.my-long-job.plist')
+  assert.equal(result.namespace, null)
+  assert.equal(result.jobId, 'my-long-job')
 })
 
 test.run()

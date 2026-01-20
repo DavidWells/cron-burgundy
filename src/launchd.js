@@ -443,6 +443,11 @@ function parsePlistFilename(filename) {
   // Remove prefix and .plist suffix
   const rest = filename.slice(jobPrefix.length, -6)
 
+  // Must have a job ID
+  if (!rest) {
+    return null
+  }
+
   // Check if there's a namespace (format: namespace.jobId)
   // Simple heuristic: if there's a dot, first part is namespace
   const dotIdx = rest.indexOf('.')
