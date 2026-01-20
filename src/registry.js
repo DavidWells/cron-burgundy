@@ -9,6 +9,17 @@ const STATE_DIR = path.join(os.homedir(), '.cron-burgundy')
 const REGISTRY_FILE = path.join(STATE_DIR, 'registry.json')
 
 /**
+ * @typedef {Object} RegistryEntry
+ * @property {string} path - absolute path to jobs.js file
+ * @property {string|null} namespace - namespace for jobs (null = no namespace)
+ */
+
+/**
+ * @typedef {Object} Registry
+ * @property {RegistryEntry[]} files
+ */
+
+/**
  * Ensure the state directory exists
  */
 async function ensureStateDir() {
@@ -16,13 +27,32 @@ async function ensureStateDir() {
 }
 
 /**
+ * Migrate old format (string[]) to new format ({path, namespace}[])
+ * @param {any} data - raw registry data
+ * @returns {Registry}
+ */
+function migrateRegistry(data) {
+  if (!data || !data.files) return { files: [] }
+
+  // Check if already in new format
+  if (data.files.length > 0 && typeof data.files[0] === 'object') {
+    return data
+  }
+
+  // Migrate from string[] to {path, namespace}[]
+  return {
+    files: data.files.map(f => ({ path: f, namespace: null }))
+  }
+}
+
+/**
  * Get the registry
- * @returns {Promise<{files: string[]}>}
+ * @returns {Promise<Registry>}
  */
 export async function getRegistry() {
   try {
     const data = await fs.readFile(REGISTRY_FILE, 'utf8')
-    return JSON.parse(data)
+    return migrateRegistry(JSON.parse(data))
   } catch (err) {
     if (err.code === 'ENOENT') return { files: [] }
     throw err
@@ -31,7 +61,7 @@ export async function getRegistry() {
 
 /**
  * Save the registry
- * @param {{files: string[]}} registry
+ * @param {Registry} registry
  */
 async function saveRegistry(registry) {
   await ensureStateDir()
@@ -39,19 +69,56 @@ async function saveRegistry(registry) {
 }
 
 /**
+ * Qualify a job ID with namespace
+ * @param {string} jobId
+ * @param {string|null} namespace
+ * @returns {string} - "namespace/jobId" or just "jobId" if no namespace
+ */
+export function qualifyJobId(jobId, namespace) {
+  if (!namespace) return jobId
+  return `${namespace}/${jobId}`
+}
+
+/**
+ * Parse a qualified job ID
+ * @param {string} id - "namespace/jobId" or just "jobId"
+ * @returns {{ namespace: string|null, jobId: string }}
+ */
+export function parseQualifiedId(id) {
+  const slashIdx = id.indexOf('/')
+  if (slashIdx === -1) {
+    return { namespace: null, jobId: id }
+  }
+  return {
+    namespace: id.slice(0, slashIdx),
+    jobId: id.slice(slashIdx + 1)
+  }
+}
+
+/**
  * Register a job file
  * @param {string} filePath - absolute path to jobs.js file
- * @returns {Promise<'added'|'exists'>}
+ * @param {string|null} [namespace] - optional namespace for this file's jobs
+ * @returns {Promise<'added'|'updated'|'exists'>}
  */
-export async function registerFile(filePath) {
+export async function registerFile(filePath, namespace = null) {
   const absPath = path.resolve(filePath)
   const registry = await getRegistry()
 
-  if (registry.files.includes(absPath)) {
-    return 'exists'
+  const existingIdx = registry.files.findIndex(f => f.path === absPath)
+
+  if (existingIdx !== -1) {
+    // File already registered - check if namespace changed
+    if (registry.files[existingIdx].namespace === namespace) {
+      return 'exists'
+    }
+    // Update namespace
+    registry.files[existingIdx].namespace = namespace
+    await saveRegistry(registry)
+    return 'updated'
   }
 
-  registry.files.push(absPath)
+  registry.files.push({ path: absPath, namespace })
   await saveRegistry(registry)
   return 'added'
 }
@@ -65,7 +132,7 @@ export async function unregisterFile(filePath) {
   const absPath = path.resolve(filePath)
   const registry = await getRegistry()
 
-  const idx = registry.files.indexOf(absPath)
+  const idx = registry.files.findIndex(f => f.path === absPath)
   if (idx === -1) {
     return 'not_found'
   }
@@ -76,38 +143,63 @@ export async function unregisterFile(filePath) {
 }
 
 /**
+ * Get namespace for a file path
+ * @param {string} filePath
+ * @returns {Promise<string|null>}
+ */
+export async function getNamespace(filePath) {
+  const absPath = path.resolve(filePath)
+  const registry = await getRegistry()
+  const entry = registry.files.find(f => f.path === absPath)
+  return entry?.namespace ?? null
+}
+
+/**
+ * @typedef {Object} JobSource
+ * @property {string} file
+ * @property {string|null} namespace
+ * @property {import('./scheduler.js').Job[]} jobs
+ * @property {string} [error]
+ */
+
+/**
  * Load jobs from a single file
  * @param {string} filePath
- * @returns {Promise<{file: string, jobs: import('./scheduler.js').Job[], error?: string}>}
+ * @param {string|null} namespace
+ * @returns {Promise<JobSource>}
  */
-export async function loadJobsFromFile(filePath) {
+export async function loadJobsFromFile(filePath, namespace = null) {
   try {
     const mod = await import(filePath)
     const jobs = mod.jobs || mod.default?.jobs || []
-    return { file: filePath, jobs }
+    return { file: filePath, namespace, jobs }
   } catch (err) {
-    return { file: filePath, jobs: [], error: err.message }
+    return { file: filePath, namespace, jobs: [], error: err.message }
   }
 }
 
 /**
  * Load all jobs from all registered files
- * @returns {Promise<{file: string, jobs: import('./scheduler.js').Job[], error?: string}[]>}
+ * @returns {Promise<JobSource[]>}
  */
 export async function loadAllJobs() {
   const registry = await getRegistry()
   const results = []
 
-  for (const file of registry.files) {
-    results.push(await loadJobsFromFile(file))
+  for (const entry of registry.files) {
+    results.push(await loadJobsFromFile(entry.path, entry.namespace))
   }
 
   return results
 }
 
 /**
+ * @typedef {import('./scheduler.js').Job & { _source: string, _namespace: string|null, _qualifiedId: string }} JobWithMeta
+ */
+
+/**
  * Get all jobs as a flat array with source info
- * @returns {Promise<Array<import('./scheduler.js').Job & {_source: string}>>}
+ * @returns {Promise<JobWithMeta[]>}
  */
 export async function getAllJobsFlat() {
   const sources = await loadAllJobs()
@@ -116,7 +208,12 @@ export async function getAllJobsFlat() {
   for (const source of sources) {
     if (source.error) continue
     for (const job of source.jobs) {
-      allJobs.push({ ...job, _source: source.file })
+      allJobs.push({
+        ...job,
+        _source: source.file,
+        _namespace: source.namespace,
+        _qualifiedId: qualifyJobId(job.id, source.namespace)
+      })
     }
   }
 
@@ -124,22 +221,58 @@ export async function getAllJobsFlat() {
 }
 
 /**
+ * Get all namespaces currently in use
+ * @returns {Promise<Set<string|null>>}
+ */
+export async function getAllNamespaces() {
+  const registry = await getRegistry()
+  return new Set(registry.files.map(f => f.namespace))
+}
+
+/**
  * Find a job by ID across all registered files
- * @param {string} jobId
- * @returns {Promise<{job: import('./scheduler.js').Job & {_source: string}, source: string} | null>}
+ * Supports both qualified (namespace/id) and unqualified (id) lookups
+ * @param {string} jobId - "namespace/jobId" or just "jobId"
+ * @returns {Promise<{job: JobWithMeta, source: string} | null>}
  */
 export async function findJob(jobId) {
   const sources = await loadAllJobs()
+  const { namespace: targetNs, jobId: targetId } = parseQualifiedId(jobId)
 
   for (const source of sources) {
     if (source.error) continue
-    const job = source.jobs.find(j => j.id === jobId)
+
+    // If qualified ID, must match namespace
+    if (targetNs !== null && source.namespace !== targetNs) continue
+
+    const job = source.jobs.find(j => j.id === targetId)
     if (job) {
-      return { job: { ...job, _source: source.file }, source: source.file }
+      return {
+        job: {
+          ...job,
+          _source: source.file,
+          _namespace: source.namespace,
+          _qualifiedId: qualifyJobId(job.id, source.namespace)
+        },
+        source: source.file
+      }
     }
   }
 
   return null
 }
 
-export { REGISTRY_FILE }
+/**
+ * Find all jobs by namespace
+ * @param {string} namespace
+ * @returns {Promise<JobWithMeta[]>}
+ */
+export async function findJobsByNamespace(namespace) {
+  const allJobs = await getAllJobsFlat()
+  return allJobs.filter(j => j._namespace === namespace)
+}
+
+export {
+  REGISTRY_FILE,
+  STATE_DIR
+}

@@ -33,10 +33,12 @@ function getLockPath(jobId) {
 }
 
 /**
- * Ensure lock directory exists
+ * Ensure lock directory exists (and parent dirs for namespaced jobs)
+ * @param {string} jobId
  */
-async function ensureLockDir() {
-  await fs.mkdir(LOCK_DIR, { recursive: true })
+async function ensureLockDir(jobId) {
+  const lockPath = getLockPath(jobId)
+  await fs.mkdir(path.dirname(lockPath), { recursive: true })
 }
 
 /**
@@ -102,7 +104,7 @@ async function isLocked(jobId, staleLockMs = DEFAULT_STALE_LOCK_MS) {
  * @returns {Promise<boolean>} True if lock acquired, false if already locked
  */
 export async function acquireLock(jobId, options = {}) {
-  await ensureLockDir()
+  await ensureLockDir(jobId)
 
   if (await isLocked(jobId, options.staleLockMs)) {
     return false

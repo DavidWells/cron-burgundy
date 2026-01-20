@@ -7,6 +7,7 @@ import plist from 'plist'
 import { normalizeSchedule } from './cron-parser.js'
 import { clearLock } from './lock.js'
 import { resume } from './state.js'
+import { qualifyJobId } from './registry.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, '..')
@@ -42,12 +43,26 @@ function getNodePath() {
 }
 
 /**
- * Get plist path for a job
+ * Get launchd label for a job
  * @param {string} jobId
+ * @param {string|null} namespace
  * @returns {string}
  */
-function getJobPlistPath(jobId) {
-  return path.join(LAUNCH_AGENTS_DIR, `${LABEL_PREFIX}.job.${jobId}.plist`)
+function getJobLabel(jobId, namespace = null) {
+  if (namespace) {
+    return `${LABEL_PREFIX}.job.${namespace}.${jobId}`
+  }
+  return `${LABEL_PREFIX}.job.${jobId}`
+}
+
+/**
+ * Get plist path for a job
+ * @param {string} jobId
+ * @param {string|null} namespace
+ * @returns {string}
+ */
+function getJobPlistPath(jobId, namespace = null) {
+  return path.join(LAUNCH_AGENTS_DIR, `${getJobLabel(jobId, namespace)}.plist`)
 }
 
 /**
@@ -137,16 +152,18 @@ function cronToCalendarInterval(cronExpr) {
  * Generate plist config for a specific job
  * @param {import('./scheduler.js').Job} job
  * @param {string} jobFileDir - directory containing the job file (used as WorkingDirectory)
+ * @param {string|null} namespace
  * @returns {Object}
  */
-export function generateJobPlistConfig(job, jobFileDir) {
+export function generateJobPlistConfig(job, jobFileDir, namespace = null) {
   const nodePath = getNodePath()
   const cliPath = path.join(PROJECT_ROOT, 'bin', 'cli.js')
   const logDir = path.join(os.homedir(), '.cron-burgundy')
+  const qualifiedId = qualifyJobId(job.id, namespace)
 
   const config = {
-    Label: `${LABEL_PREFIX}.job.${job.id}`,
-    ProgramArguments: [nodePath, cliPath, 'run', '--scheduled', job.id],
+    Label: getJobLabel(job.id, namespace),
+    ProgramArguments: [nodePath, cliPath, 'run', '--scheduled', qualifiedId],
     StandardOutPath: path.join(logDir, 'runner.log'),
     StandardErrorPath: path.join(logDir, 'runner.error.log'),
     WorkingDirectory: jobFileDir,
@@ -154,7 +171,7 @@ export function generateJobPlistConfig(job, jobFileDir) {
       PATH: `${path.dirname(nodePath)}:/usr/local/bin:/usr/bin:/bin`
     }
   }
-  
+
   // Add schedule based on job type
   if (job.schedule) {
     const cronSchedule = normalizeSchedule(job.schedule)
@@ -165,7 +182,7 @@ export function generateJobPlistConfig(job, jobFileDir) {
     }
     config.StartInterval = Math.floor(job.interval / 1000) // Convert ms to seconds
   }
-  
+
   return config
 }
 
@@ -219,14 +236,15 @@ function unloadPlist(plistPath) {
  * Install a single job's plist
  * @param {import('./scheduler.js').Job} job
  * @param {string} projectPath
+ * @param {string|null} namespace
  * @returns {Promise<'installed'|'unchanged'>}
  */
-export async function installJob(job, projectPath) {
+export async function installJob(job, projectPath, namespace = null) {
   requireMacOS()
   await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
 
-  const plistPath = getJobPlistPath(job.id)
-  const config = generateJobPlistConfig(job, projectPath)
+  const plistPath = getJobPlistPath(job.id, namespace)
+  const config = generateJobPlistConfig(job, projectPath, namespace)
   const xml = plist.build(config)
 
   // Check if plist already exists and is identical
@@ -252,26 +270,27 @@ export async function installJob(job, projectPath) {
 /**
  * Uninstall a single job's plist
  * @param {string} jobId
- * @param {{ alwaysPrint?: boolean, description?: string }} [options]
+ * @param {{ alwaysPrint?: boolean, description?: string, namespace?: string|null }} [options]
  */
 export async function uninstallJob(jobId, options = {}) {
   requireMacOS()
-  const { alwaysPrint = false, description } = options
-  const plistPath = getJobPlistPath(jobId)
+  const { alwaysPrint = false, description, namespace = null } = options
+  const plistPath = getJobPlistPath(jobId, namespace)
+  const qualifiedId = qualifyJobId(jobId, namespace)
   const desc = description ? ` - ${description}` : ''
 
   unloadPlist(plistPath)
 
   try {
     await fs.unlink(plistPath)
-    await clearLock(jobId)
-    await resume(jobId)  // Clear pause state
-    console.log(`  ✗ ${jobId}${desc}`)
+    await clearLock(qualifiedId)
+    await resume(qualifiedId)  // Clear pause state
+    console.log(`  ✗ ${qualifiedId}${desc}`)
   } catch (err) {
     if (err.code === 'ENOENT') {
-      await clearLock(jobId)
-      await resume(jobId)  // Clear pause state
-      if (alwaysPrint) console.log(`  ✗ ${jobId}${desc}`)
+      await clearLock(qualifiedId)
+      await resume(qualifiedId)  // Clear pause state
+      if (alwaysPrint) console.log(`  ✗ ${qualifiedId}${desc}`)
     } else {
       throw err
     }
@@ -317,11 +336,13 @@ export async function uninstallWakeChecker() {
  * Sync jobs with launchd - install enabled, remove disabled
  * @param {import('./scheduler.js').Job[]} jobs
  * @param {string} projectPath
+ * @param {string|null} namespace
  */
-export async function sync(jobs, projectPath) {
+export async function sync(jobs, projectPath, namespace = null) {
   const { isEnabled } = await import('./scheduler.js')
 
-  console.log('=== Syncing jobs with launchd ===\n')
+  const nsLabel = namespace ? ` [${namespace}]` : ''
+  console.log(`=== Syncing jobs with launchd${nsLabel} ===\n`)
 
   const enabled = jobs.filter(j => isEnabled(j))
   const disabled = jobs.filter(j => !isEnabled(j))
@@ -332,7 +353,7 @@ export async function sync(jobs, projectPath) {
   const unchanged = []
 
   for (const job of enabled) {
-    const result = await installJob(job, projectPath)
+    const result = await installJob(job, projectPath, namespace)
     if (result === 'installed') {
       installed.push(job)
     } else {
@@ -343,9 +364,10 @@ export async function sync(jobs, projectPath) {
   if (enabled.length > 0) {
     console.log('Installed jobs:')
     for (const job of enabled) {
+      const qualifiedId = qualifyJobId(job.id, namespace)
       const desc = job.description ? ` - ${job.description}` : ''
       const status = unchanged.includes(job) ? ' (unchanged)' : ''
-      console.log(`  ✓ ${job.id}${desc}${status}`)
+      console.log(`  ✓ ${qualifiedId}${desc}${status}`)
     }
   }
 
@@ -353,27 +375,31 @@ export async function sync(jobs, projectPath) {
   if (disabled.length > 0) {
     console.log('\nDisabled jobs:')
     for (const job of disabled) {
-      await uninstallJob(job.id, { alwaysPrint: true, description: job.description })
+      await uninstallJob(job.id, { alwaysPrint: true, description: job.description, namespace })
     }
   }
 
-  // Remove orphaned plists (jobs that no longer exist in jobs.js)
+  // Remove orphaned plists for THIS namespace only
   const installedPlists = await listInstalledPlists()
-  const jobPlistPrefix = `${LABEL_PREFIX}.job.`
   const orphaned = []
 
   for (const plistFile of installedPlists) {
-    if (!plistFile.startsWith(jobPlistPrefix)) continue
-    const jobId = plistFile.replace(jobPlistPrefix, '').replace('.plist', '')
-    if (!allJobIds.has(jobId)) {
-      orphaned.push(jobId)
+    // Parse the plist filename to extract namespace and jobId
+    const parsed = parsePlistFilename(plistFile)
+    if (!parsed) continue
+
+    // Only check orphans within the same namespace
+    if (parsed.namespace !== namespace) continue
+
+    if (!allJobIds.has(parsed.jobId)) {
+      orphaned.push(parsed)
     }
   }
 
   if (orphaned.length > 0) {
     console.log('\nRemoving orphaned jobs:')
-    for (const jobId of orphaned) {
-      await uninstallJob(jobId)
+    for (const { jobId, namespace: ns } of orphaned) {
+      await uninstallJob(jobId, { namespace: ns })
     }
   }
 
@@ -382,18 +408,50 @@ export async function sync(jobs, projectPath) {
 }
 
 /**
- * Uninstall all plists
- * @param {import('./scheduler.js').Job[]} jobs
+ * Parse a plist filename to extract namespace and jobId
+ * @param {string} filename - e.g. "com.cron-burgundy.job.pm.tick.plist"
+ * @returns {{ namespace: string|null, jobId: string }|null}
  */
-export async function uninstallAll(jobs) {
-  console.log('\n=== Uninstalling all jobs ===\n')
-  
-  for (const job of jobs) {
-    await uninstallJob(job.id)
+function parsePlistFilename(filename) {
+  const jobPrefix = `${LABEL_PREFIX}.job.`
+  if (!filename.startsWith(jobPrefix) || !filename.endsWith('.plist')) {
+    return null
   }
-  
-  await uninstallWakeChecker()
-  
+
+  // Remove prefix and .plist suffix
+  const rest = filename.slice(jobPrefix.length, -6)
+
+  // Check if there's a namespace (format: namespace.jobId)
+  // Simple heuristic: if there's a dot, first part is namespace
+  const dotIdx = rest.indexOf('.')
+  if (dotIdx === -1) {
+    return { namespace: null, jobId: rest }
+  }
+
+  return {
+    namespace: rest.slice(0, dotIdx),
+    jobId: rest.slice(dotIdx + 1)
+  }
+}
+
+/**
+ * Uninstall all plists for given jobs
+ * @param {import('./scheduler.js').Job[]} jobs
+ * @param {string|null} namespace
+ */
+export async function uninstallAll(jobs, namespace = null) {
+  const nsLabel = namespace ? ` [${namespace}]` : ''
+  console.log(`\n=== Uninstalling all jobs${nsLabel} ===\n`)
+
+  for (const job of jobs) {
+    await uninstallJob(job.id, { namespace })
+  }
+
+  // Only uninstall wake checker if no namespace (global uninstall)
+  if (!namespace) {
+    await uninstallWakeChecker()
+  }
+
   console.log('\n✓ All jobs uninstalled')
 }
 
@@ -411,4 +469,15 @@ export async function listInstalledPlists() {
   }
 }
 
-export { LABEL_PREFIX, LAUNCH_AGENTS_DIR, MIN_INTERVAL_MS, MIN_INTERVAL_SECONDS, getJobPlistPath, getWakeCheckerPlistPath, expandCronField, cronToCalendarInterval }
+export {
+  LABEL_PREFIX,
+  LAUNCH_AGENTS_DIR,
+  MIN_INTERVAL_MS,
+  MIN_INTERVAL_SECONDS,
+  getJobLabel,
+  getJobPlistPath,
+  getWakeCheckerPlistPath,
+  expandCronField,
+  cronToCalendarInterval,
+  parsePlistFilename
+}

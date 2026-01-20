@@ -111,47 +111,50 @@ export async function runAllDue(jobs) {
  * @returns {Promise<void>}
  */
 export async function runJobNow(job, options = {}) {
+  // Use qualified ID for namespaced jobs, fallback to base id
+  const jobId = job._qualifiedId || job.id
+
   // Check if paused (only for scheduled runs - manual runs bypass pause)
-  if (options.scheduled && await isPaused(job.id)) {
-    await logRunner(`Skipped - job is paused`, job.id)
+  if (options.scheduled && await isPaused(jobId)) {
+    await logRunner(`Skipped - job is paused`, jobId)
     return
   }
 
   // Acquire lock - skip if another instance is already running
   const staleLockMs = getStaleLockMs(job)
-  if (!await acquireLock(job.id, { staleLockMs })) {
-    await logRunner(`Skipped - another instance is running (locked)`, job.id)
+  if (!await acquireLock(jobId, { staleLockMs })) {
+    await logRunner(`Skipped - another instance is running (locked)`, jobId)
     return
   }
 
   try {
-    await logJobSeparator(job.id)
+    await logJobSeparator(jobId)
     const triggerType = options.scheduled ? 'Scheduled' : 'Manual'
-    await logRunner(`${triggerType} run on ${humanTime(new Date(), { seconds: true })} ────────────────────`, job.id)
-    await logJob(job.id, `${triggerType} run on ${humanTime(new Date(), { seconds: true })}`)
+    await logRunner(`${triggerType} run on ${humanTime(new Date(), { seconds: true })} ────────────────────`, jobId)
+    await logJob(jobId, `${triggerType} run on ${humanTime(new Date(), { seconds: true })}`)
 
     const start = Date.now()
-    const logger = createJobLogger(job.id)
-    const lastRun = await getLastRun(job.id)
+    const logger = createJobLogger(jobId)
+    const lastRun = await getLastRun(jobId)
 
-    await captureJobOutput(job.id, () => job.run({ logger, utils, lastRun }))
+    await captureJobOutput(jobId, () => job.run({ logger, utils, lastRun }))
     const markOptions = options.scheduled && job.interval ? { interval: job.interval } : {}
-    await markRun(job.id, markOptions)
+    await markRun(jobId, markOptions)
     const duration = Date.now() - start
     let nextRunStr = ''
     if (options.scheduled) {
       const nextRun = getNextRun(job, new Date())
       nextRunStr = nextRun ? `. Next run at ${humanTime(nextRun, { seconds: true })}` : ''
     }
-    await logRunner(`Completed in ${duration}ms`, job.id)
-    await logJob(job.id, `Completed in ${duration}ms${nextRunStr}`)
+    await logRunner(`Completed in ${duration}ms`, jobId)
+    await logJob(jobId, `Completed in ${duration}ms${nextRunStr}`)
   } catch (err) {
-    await logRunner(`Failed: ${err.message}`, job.id)
-    await logJob(job.id, `Failed: ${err.message}`)
-    utils.notify(`${job.id} failed`, err.message || 'Unknown error')
+    await logRunner(`Failed: ${err.message}`, jobId)
+    await logJob(jobId, `Failed: ${err.message}`)
+    utils.notify(`${jobId} failed`, err.message || 'Unknown error')
     throw err
   } finally {
-    await releaseLock(job.id)
+    await releaseLock(jobId)
   }
 }
 

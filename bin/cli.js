@@ -6,12 +6,35 @@ import fs from 'fs'
 import { runAllDue, runJobNow, checkMissed } from '../src/runner.js'
 import { getState, pause, resume, getPauseStatus, isPaused, getNextScheduledRun } from '../src/state.js'
 import { getIntervalMs, getNextRun, formatInterval, isEnabled, getDisplaySchedule } from '../src/scheduler.js'
-import { sync, uninstallAll, listInstalledPlists } from '../src/launchd.js'
+import { sync, uninstallAll, listInstalledPlists, parsePlistFilename } from '../src/launchd.js'
 import { spawn } from 'child_process'
 import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, colorizeLine, logRunner, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
-import { getRegistry, registerFile, unregisterFile, loadAllJobs, findJob, getAllJobsFlat } from '../src/registry.js'
+import { getRegistry, registerFile, unregisterFile, loadAllJobs, findJob, getAllJobsFlat, qualifyJobId, getNamespace, findJobsByNamespace } from '../src/registry.js'
 import { clearStaleLock } from '../src/lock.js'
 import * as p from '@clack/prompts'
+
+/**
+ * Get display ID for a job - short if unique, qualified if collision
+ * @param {string} jobId
+ * @param {string|null} namespace
+ * @param {Map<string, number>} idCounts - map of base jobId to count
+ * @returns {string}
+ */
+function getDisplayId(jobId, namespace, idCounts) {
+  const count = idCounts.get(jobId) || 0
+  if (count > 1 && namespace) {
+    return qualifyJobId(jobId, namespace)
+  }
+  return jobId
+}
+
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const size = bytes / Math.pow(1024, i)
+  return `${size % 1 === 0 ? size : size.toFixed(1)} ${units[i]}`
+}
 
 const program = new Command()
 
@@ -25,18 +48,34 @@ program
 program
   .command('list')
   .description('List all registered jobs with status')
-  .action(async () => {
+  .option('-n, --namespace <ns>', 'Filter by namespace')
+  .action(async (options) => {
     const sources = await loadAllJobs()
     const state = await getState()
     const pauseStatus = await getPauseStatus()
     const installedPlists = await listInstalledPlists()
-    const installedJobIds = new Set(
-      installedPlists
-        .filter(f => f.startsWith('com.cron-burgundy.job.'))
-        .map(f => f.replace('com.cron-burgundy.job.', '').replace('.plist', ''))
-    )
 
-    console.log('\n=== Registered Jobs ===\n')
+    // Build a set of installed qualified IDs
+    const installedQualifiedIds = new Set()
+    for (const plist of installedPlists) {
+      const parsed = parsePlistFilename(plist)
+      if (parsed) {
+        installedQualifiedIds.add(qualifyJobId(parsed.jobId, parsed.namespace))
+      }
+    }
+
+    // Count base IDs for collision detection
+    const idCounts = new Map()
+    for (const source of sources) {
+      if (source.error) continue
+      for (const job of source.jobs) {
+        idCounts.set(job.id, (idCounts.get(job.id) || 0) + 1)
+      }
+    }
+
+    const nsFilter = options.namespace || null
+    const headerSuffix = nsFilter ? ` [${nsFilter}]` : ''
+    console.log(`\n=== Registered Jobs${headerSuffix} ===\n`)
 
     if (pauseStatus.all) {
       console.log('⏸  ALL JOBS PAUSED\n')
@@ -54,7 +93,11 @@ program
     const unsyncedJobs = []
 
     for (const source of sources) {
-      console.log(`${source.file}:`)
+      // Filter by namespace if specified
+      if (nsFilter && source.namespace !== nsFilter) continue
+
+      const nsLabel = source.namespace ? ` [${source.namespace}]` : ''
+      console.log(`${source.file}${nsLabel}:`)
 
       if (source.error) {
         console.log(`  ⚠ Error loading: ${source.error}\n`)
@@ -67,18 +110,20 @@ program
       }
 
       for (const job of source.jobs) {
-        const lastRunStr = state[job.id]
+        const qualifiedId = qualifyJobId(job.id, source.namespace)
+        const displayId = getDisplayId(job.id, source.namespace, idCounts)
+        const lastRunStr = state[qualifiedId] || state[job.id] // fallback for migration
         const lastRun = lastRunStr ? new Date(lastRunStr) : null
         const nextRun = job.interval
-          ? await getNextScheduledRun(job.id)
+          ? await getNextScheduledRun(qualifiedId)
           : getNextRun(job, lastRun)
-        const jobPaused = pauseStatus.all || pauseStatus.jobs.includes(job.id)
-        const isInstalled = installedJobIds.has(job.id)
+        const jobPaused = pauseStatus.all || pauseStatus.jobs.includes(qualifiedId) || pauseStatus.jobs.includes(job.id)
+        const isInstalled = installedQualifiedIds.has(qualifiedId)
         const needsSync = isEnabled(job) && !isInstalled
 
         const status = !isEnabled(job) ? '✗' : needsSync ? '⚠' : jobPaused ? '⏸' : '✓'
 
-        console.log(`  ${status} ${job.id}`)
+        console.log(`  ${status} ${displayId}`)
         if (job.description) {
           console.log(`     ${job.description}`)
         }
@@ -101,7 +146,7 @@ program
         totalJobs++
         if (isEnabled(job)) totalEnabled++
         else totalDisabled++
-        if (needsSync) unsyncedJobs.push(job.id)
+        if (needsSync) unsyncedJobs.push(displayId)
       }
     }
 
@@ -209,7 +254,9 @@ logsCmd
         fs.writeFileSync(logPath, '')
         console.log(`\n(Created empty log file - no entries yet)`)
       }
-      console.log(`\n=== Tailing: ${logPath} ===\n`)
+      const stats = fs.statSync(logPath)
+      const size = formatBytes(stats.size)
+      console.log(`\n=== Tailing: ${logPath} (${size}) ===\n`)
       console.log('(Press Ctrl+C to stop)\n')
       const tail = spawn('tail', ['-f', '-n', '0', logPath], { stdio: 'inherit' })
       tail.on('error', (err) => {
@@ -280,6 +327,42 @@ logsCmd
     } else {
       await clearRunnerLog()
       console.log('✓ Cleared runner log')
+    }
+  })
+
+logsCmd
+  .command('prune')
+  .option('-n, --dry-run', 'Show what would be deleted without deleting')
+  .description('Remove orphaned logs (jobs no longer registered)')
+  .action(async (options) => {
+    const allJobs = await getAllJobsFlat()
+    const registeredIds = new Set(allJobs.map(j => j._qualifiedId))
+
+    const logs = await listLogFiles()
+    const orphaned = []
+
+    for (const log of logs.jobs) {
+      if (!registeredIds.has(log.id)) {
+        orphaned.push(log)
+      }
+    }
+
+    if (orphaned.length === 0) {
+      console.log('No orphaned logs found')
+      return
+    }
+
+    console.log(`\n${options.dryRun ? 'Would remove' : 'Removing'} ${orphaned.length} orphaned log(s):\n`)
+
+    for (const log of orphaned) {
+      console.log(`  ${log.id} (${log.path})`)
+      if (!options.dryRun) {
+        await clearJobLog(log.id)
+      }
+    }
+
+    if (!options.dryRun) {
+      console.log(`\n✓ Removed ${orphaned.length} orphaned log(s)`)
     }
   })
 
@@ -444,8 +527,11 @@ program
 program
   .command('sync')
   .argument('[path]', 'Path to jobs.js file to register and sync')
+  .option('-n, --namespace <ns>', 'Namespace for this job file')
   .description('Register and sync a job file, or sync all registered files')
-  .action(async (filePath) => {
+  .action(async (filePath, options) => {
+    const namespace = options.namespace || null
+
     if (filePath) {
       // Register and sync a specific file
       const absPath = path.resolve(filePath)
@@ -458,16 +544,22 @@ program
           process.exit(1)
         }
 
-        const result = await registerFile(absPath)
+        const result = await registerFile(absPath, namespace)
         if (result === 'added') {
-          console.log(`✓ Registered: ${absPath}`)
+          const nsLabel = namespace ? ` [${namespace}]` : ''
+          console.log(`✓ Registered: ${absPath}${nsLabel}`)
+        } else if (result === 'updated') {
+          const nsLabel = namespace ? ` [${namespace}]` : ''
+          console.log(`✓ Updated namespace: ${absPath}${nsLabel}`)
         } else {
-          console.log(`  Already registered: ${absPath}`)
+          const existingNs = await getNamespace(absPath)
+          const nsLabel = existingNs ? ` [${existingNs}]` : ''
+          console.log(`  Already registered: ${absPath}${nsLabel}`)
         }
 
         // Sync this file's jobs
         const projectPath = path.dirname(absPath)
-        await sync(jobs, projectPath)
+        await sync(jobs, projectPath, namespace)
       } catch (err) {
         if (err.code === 'ERR_MODULE_NOT_FOUND') {
           console.error(`Error: File not found: ${absPath}`)
@@ -487,7 +579,8 @@ program
 
       console.log(`\nSyncing ${sources.length} registered file(s):`)
       for (const source of sources) {
-        console.log(`  ${source.file}`)
+        const nsLabel = source.namespace ? ` [${source.namespace}]` : ''
+        console.log(`  ${source.file}${nsLabel}`)
       }
       console.log('')
 
@@ -497,16 +590,29 @@ program
           continue
         }
         const projectPath = path.dirname(source.file)
-        await sync(source.jobs, projectPath)
+        await sync(source.jobs, projectPath, source.namespace)
       }
     }
   })
 
 program
   .command('clear')
-  .argument('[target]', 'Path to job file, or "all" to clear everything')
+  .argument('[target]', 'Path to job file, namespace, or "all" to clear everything')
+  .option('-n, --namespace <ns>', 'Clear all jobs in this namespace')
   .description('Unregister job files and remove from launchd (interactive if no arg)')
-  .action(async (target) => {
+  .action(async (target, options) => {
+    // Check if clearing by namespace
+    if (options.namespace) {
+      const jobs = await findJobsByNamespace(options.namespace)
+      if (jobs.length === 0) {
+        console.log(`No jobs found in namespace: ${options.namespace}`)
+        return
+      }
+      await uninstallAll(jobs, options.namespace)
+      console.log(`\n✓ Cleared ${jobs.length} job(s) in namespace [${options.namespace}]`)
+      return
+    }
+
     if (target === 'all') {
       // Clear everything
       const allJobs = await getAllJobsFlat()
@@ -517,23 +623,32 @@ program
         return
       }
 
-      if (allJobs.length > 0) {
-        await uninstallAll(allJobs)
+      // Group jobs by namespace for proper uninstall
+      const byNamespace = new Map()
+      for (const job of allJobs) {
+        const ns = job._namespace
+        if (!byNamespace.has(ns)) byNamespace.set(ns, [])
+        byNamespace.get(ns).push(job)
       }
 
-      for (const file of registry.files) {
-        await unregisterFile(file)
+      for (const [ns, jobs] of byNamespace) {
+        await uninstallAll(jobs, ns)
+      }
+
+      for (const entry of registry.files) {
+        await unregisterFile(entry.path)
       }
 
       console.log(`\n✓ Cleared ${registry.files.length} file(s), ${allJobs.length} job(s)`)
     } else if (target) {
       // Clear specific file
       const absPath = path.resolve(target)
+      const namespace = await getNamespace(absPath)
 
       try {
         const { jobs } = await import(absPath)
         if (jobs && Array.isArray(jobs)) {
-          await uninstallAll(jobs)
+          await uninstallAll(jobs, namespace)
         }
       } catch {
         // File might not exist anymore
@@ -541,7 +656,8 @@ program
 
       const result = await unregisterFile(absPath)
       if (result === 'removed') {
-        console.log(`✓ Cleared: ${absPath}`)
+        const nsLabel = namespace ? ` [${namespace}]` : ''
+        console.log(`✓ Cleared: ${absPath}${nsLabel}`)
       } else {
         console.log(`Not registered: ${absPath}`)
       }
@@ -557,9 +673,9 @@ program
       const selected = await p.multiselect({
         message: 'Select job files to clear',
         options: registry.files.map(f => ({
-          value: f,
-          label: path.basename(f),
-          hint: path.dirname(f)
+          value: f.path,
+          label: path.basename(f.path),
+          hint: f.namespace ? `[${f.namespace}] ${path.dirname(f.path)}` : path.dirname(f.path)
         }))
       })
 
@@ -573,16 +689,17 @@ program
         return
       }
 
-      for (const file of selected) {
+      for (const filePath of selected) {
+        const namespace = await getNamespace(filePath)
         try {
-          const { jobs } = await import(file)
+          const { jobs } = await import(filePath)
           if (jobs && Array.isArray(jobs)) {
-            await uninstallAll(jobs)
+            await uninstallAll(jobs, namespace)
           }
         } catch {
           // File might not exist
         }
-        await unregisterFile(file)
+        await unregisterFile(filePath)
       }
 
       console.log(`✓ Cleared ${selected.length} file(s)`)

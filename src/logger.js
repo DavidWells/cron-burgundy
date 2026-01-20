@@ -18,6 +18,18 @@ async function ensureLogDirs() {
 }
 
 /**
+ * Get job log path and ensure parent directory exists (for namespaced jobs like pm/tick)
+ * @param {string} jobId
+ * @returns {Promise<string>}
+ */
+async function getJobLogPath(jobId) {
+  const logPath = path.join(JOBS_LOG_DIR, `${jobId}.log`)
+  // Ensure parent directory exists (handles namespaced jobs like pm/tick)
+  await fs.mkdir(path.dirname(logPath), { recursive: true })
+  return logPath
+}
+
+/**
  * Rotate log file if it exceeds max size
  * @param {string} filePath
  */
@@ -180,7 +192,7 @@ export async function logRunnerSeparator() {
  * @param {string} message
  */
 export async function logJob(jobId, message) {
-  const jobLogPath = path.join(JOBS_LOG_DIR, `${jobId}.log`)
+  const jobLogPath = await getJobLogPath(jobId)
   await appendLog(jobLogPath, message)
 }
 
@@ -189,8 +201,7 @@ export async function logJob(jobId, message) {
  * @param {string} jobId
  */
 export async function logJobSeparator(jobId) {
-  await ensureLogDirs()
-  const jobLogPath = path.join(JOBS_LOG_DIR, `${jobId}.log`)
+  const jobLogPath = await getJobLogPath(jobId)
   await fs.appendFile(jobLogPath, `[${timestamp()}] ${SEPARATOR}\n`)
 }
 
@@ -212,8 +223,7 @@ export function createJobLogger(jobId) {
  * @returns {Promise<void>}
  */
 export async function captureJobOutput(jobId, fn) {
-  const jobLogPath = path.join(JOBS_LOG_DIR, `${jobId}.log`)
-  await ensureLogDirs()
+  const jobLogPath = await getJobLogPath(jobId)
 
   const originalStdoutWrite = process.stdout.write.bind(process.stdout)
   const originalStderrWrite = process.stderr.write.bind(process.stderr)
@@ -337,24 +347,41 @@ export async function clearAllJobLogs() {
 }
 
 /**
- * List all log files
- * @returns {Promise<{runner: string, jobs: {id: string, path: string}[]}>}
+ * Recursively find log files in a directory
+ * @param {string} dir
+ * @param {string} prefix - namespace prefix for subdirs
+ * @returns {Promise<{id: string, path: string}[]>}
  */
-export async function listLogFiles() {
-  const jobs = []
+async function findLogFilesRecursive(dir, prefix = '') {
+  const results = []
   try {
-    const files = await fs.readdir(JOBS_LOG_DIR)
-    for (const file of files) {
-      if (file.endsWith('.log')) {
-        jobs.push({
-          id: file.replace('.log', ''),
-          path: path.join(JOBS_LOG_DIR, file)
-        })
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        // Recurse into namespace directories
+        const subPrefix = prefix ? `${prefix}/${entry.name}` : entry.name
+        const subResults = await findLogFilesRecursive(fullPath, subPrefix)
+        results.push(...subResults)
+      } else if (entry.name.endsWith('.log') && !entry.name.includes('.log.')) {
+        // Skip rotated files (.log.1, .log.2)
+        const baseName = entry.name.replace('.log', '')
+        const id = prefix ? `${prefix}/${baseName}` : baseName
+        results.push({ id, path: fullPath })
       }
     }
   } catch (err) {
     if (err.code !== 'ENOENT') throw err
   }
+  return results
+}
+
+/**
+ * List all log files
+ * @returns {Promise<{runner: string, jobs: {id: string, path: string}[]}>}
+ */
+export async function listLogFiles() {
+  const jobs = await findLogFilesRecursive(JOBS_LOG_DIR)
   return {
     runner: RUNNER_LOG,
     jobs
