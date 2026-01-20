@@ -237,4 +237,68 @@ test('parsePlistFilename: job id with hyphens (no namespace)', () => {
   assert.equal(result.jobId, 'my-long-job')
 })
 
+// validateJobId tests (via generateJobPlistConfig)
+test('generateJobPlistConfig: rejects job ID with dots', () => {
+  const job = { id: 'my.job.name', interval: 60000 }
+  assert.throws(() => generateJobPlistConfig(job, '/path'), /cannot contain dots/)
+})
+
+test('generateJobPlistConfig: rejects job ID with slashes', () => {
+  const job = { id: 'my/job', interval: 60000 }
+  assert.throws(() => generateJobPlistConfig(job, '/path'), /invalid character/)
+})
+
+test('generateJobPlistConfig: rejects job ID with backslashes', () => {
+  const job = { id: 'my\\job', interval: 60000 }
+  assert.throws(() => generateJobPlistConfig(job, '/path'), /invalid character/)
+})
+
+test('generateJobPlistConfig: rejects job ID with path traversal', () => {
+  const job = { id: '..', interval: 60000 }
+  assert.throws(() => generateJobPlistConfig(job, '/path'), /cannot contain dots/)
+})
+
+test('generateJobPlistConfig: rejects job ID with spaces', () => {
+  const job = { id: 'my job', interval: 60000 }
+  assert.throws(() => generateJobPlistConfig(job, '/path'), /invalid character/)
+})
+
+test('generateJobPlistConfig: rejects job ID with special characters', () => {
+  const job = { id: 'my:job', interval: 60000 }
+  assert.throws(() => generateJobPlistConfig(job, '/path'), /invalid character/)
+})
+
+test('generateJobPlistConfig: rejects job ID starting with hyphen', () => {
+  const job = { id: '-myjob', interval: 60000 }
+  assert.throws(() => generateJobPlistConfig(job, '/path'), /must start with/)
+})
+
+test('generateJobPlistConfig: rejects empty job ID', () => {
+  const job = { id: '', interval: 60000 }
+  assert.throws(() => generateJobPlistConfig(job, '/path'), /non-empty string/)
+})
+
+test('generateJobPlistConfig: rejects job ID over 100 characters', () => {
+  const job = { id: 'a'.repeat(101), interval: 60000 }
+  assert.throws(() => generateJobPlistConfig(job, '/path'), /too long/)
+})
+
+test('generateJobPlistConfig: accepts valid job ID with underscores', () => {
+  const job = { id: 'my_job_name', interval: 60000 }
+  const config = generateJobPlistConfig(job, '/path')
+  assert.equal(config.Label, 'com.cron-burgundy.job.my_job_name')
+})
+
+test('generateJobPlistConfig: accepts valid job ID with hyphens', () => {
+  const job = { id: 'my-job-name', interval: 60000 }
+  const config = generateJobPlistConfig(job, '/path')
+  assert.equal(config.Label, 'com.cron-burgundy.job.my-job-name')
+})
+
+test('generateJobPlistConfig: accepts valid job ID starting with number', () => {
+  const job = { id: '123job', interval: 60000 }
+  const config = generateJobPlistConfig(job, '/path')
+  assert.equal(config.Label, 'com.cron-burgundy.job.123job')
+})
+
 test.run()
