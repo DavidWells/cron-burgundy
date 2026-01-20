@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+/**
+ * @typedef {import('../src/scheduler.js').Job} Job
+ * @typedef {import('../src/scheduler.js').JobContext} JobContext
+ */
+
 import { Command } from 'commander'
 import path from 'path'
 import fs from 'fs'

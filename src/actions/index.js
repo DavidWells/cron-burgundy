@@ -15,7 +15,6 @@ const sounds = [
   'Morse',
   'Sosumi',
   'Basso',
-  'Blow',
   'Bottle',
 ]
 

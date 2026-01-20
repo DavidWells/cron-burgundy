@@ -7,7 +7,7 @@ import plist from 'plist'
 import { normalizeSchedule } from './cron-parser.js'
 import { clearLock } from './lock.js'
 import { resume } from './state.js'
-import { qualifyJobId } from './registry.js'
+import { qualifyJobId, validateJobId } from './registry.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, '..')
@@ -178,6 +178,9 @@ function cronToCalendarInterval(cronExpr) {
  * @returns {Object}
  */
 export function generateJobPlistConfig(job, jobFileDir, namespace = null) {
+  // Validate job ID before generating plist
+  validateJobId(job.id)
+
   const nodePath = getNodePath()
   const cliPath = path.join(PROJECT_ROOT, 'bin', 'cli.js')
   const logDir = path.join(os.homedir(), '.cron-burgundy')
