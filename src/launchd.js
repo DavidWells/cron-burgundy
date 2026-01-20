@@ -75,17 +75,38 @@ function getWakeCheckerPlistPath() {
 
 /**
  * Expand a cron field value into an array of integers
- * Handles: *, single values, ranges (6-12), lists (1,3,5)
+ * Handles: *, single values, ranges, lists, steps
  * @param {string} field
- * @returns {number[]|null} null means wildcard (*)
+ * @param {number} min - minimum value for the field
+ * @param {number} max - maximum value for the field
+ * @returns {number[]|null} null means wildcard
  */
-function expandCronField(field) {
+function expandCronField(field, min = 0, max = 59) {
   if (field === '*') return null
 
   const values = new Set()
 
   for (const part of field.split(',')) {
-    if (part.includes('-')) {
+    // Handle step values: */5 or 1-10/2
+    if (part.includes('/')) {
+      const [range, stepStr] = part.split('/')
+      const step = parseInt(stepStr, 10)
+
+      let start, end
+      if (range === '*') {
+        start = min
+        end = max
+      } else if (range.includes('-')) {
+        ;[start, end] = range.split('-').map(n => parseInt(n, 10))
+      } else {
+        start = parseInt(range, 10)
+        end = max
+      }
+
+      for (let i = start; i <= end; i += step) {
+        values.add(i)
+      }
+    } else if (part.includes('-')) {
       const [start, end] = part.split('-').map(n => parseInt(n, 10))
       for (let i = start; i <= end; i++) {
         values.add(i)
@@ -112,11 +133,12 @@ function cronToCalendarInterval(cronExpr) {
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts
 
-  const minutes = expandCronField(minute)
-  const hours = expandCronField(hour)
-  const days = expandCronField(dayOfMonth)
-  const months = expandCronField(month)
-  const weekdays = expandCronField(dayOfWeek)
+  // Pass correct min/max for each field type
+  const minutes = expandCronField(minute, 0, 59)
+  const hours = expandCronField(hour, 0, 23)
+  const days = expandCronField(dayOfMonth, 1, 31)
+  const months = expandCronField(month, 1, 12)
+  const weekdays = expandCronField(dayOfWeek, 0, 6)
 
   // Build all combinations
   const intervals = []

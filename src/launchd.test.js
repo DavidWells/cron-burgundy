@@ -32,6 +32,26 @@ test('expandCronField: range + list combined', () => {
   assert.equal(expandCronField('0,5-7,10'), [0, 5, 6, 7, 10])
 })
 
+test('expandCronField: step value */5 for minutes', () => {
+  assert.equal(expandCronField('*/5', 0, 59), [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55])
+})
+
+test('expandCronField: step value */15 for minutes', () => {
+  assert.equal(expandCronField('*/15', 0, 59), [0, 15, 30, 45])
+})
+
+test('expandCronField: step value */2 for hours', () => {
+  assert.equal(expandCronField('*/2', 0, 23), [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22])
+})
+
+test('expandCronField: step value with range 1-10/2', () => {
+  assert.equal(expandCronField('1-10/2', 0, 59), [1, 3, 5, 7, 9])
+})
+
+test('expandCronField: step value with range 0-30/10', () => {
+  assert.equal(expandCronField('0-30/10', 0, 59), [0, 10, 20, 30])
+})
+
 // cronToCalendarInterval tests
 test('cronToCalendarInterval: daily at 9am', () => {
   const result = cronToCalendarInterval('0 9 * * *')
@@ -99,6 +119,23 @@ test('cronToCalendarInterval: multiple weekdays', () => {
 test('cronToCalendarInterval: invalid expression throws', () => {
   assert.throws(() => cronToCalendarInterval('0 9 * *'), /Invalid cron/)
   assert.throws(() => cronToCalendarInterval('* * *'), /Invalid cron/)
+})
+
+test('cronToCalendarInterval: every 5 minutes (*/5)', () => {
+  const result = cronToCalendarInterval('*/5 * * * *')
+  assert.ok(Array.isArray(result))
+  assert.equal(result.length, 12) // 0,5,10,15,20,25,30,35,40,45,50,55
+  assert.equal(result[0], { Minute: 0 })
+  assert.equal(result[1], { Minute: 5 })
+  assert.equal(result[11], { Minute: 55 })
+})
+
+test('cronToCalendarInterval: every 2 hours (0 */2)', () => {
+  const result = cronToCalendarInterval('0 */2 * * *')
+  assert.ok(Array.isArray(result))
+  assert.equal(result.length, 12) // 0,2,4,6,8,10,12,14,16,18,20,22
+  assert.equal(result[0], { Minute: 0, Hour: 0 })
+  assert.equal(result[1], { Minute: 0, Hour: 2 })
 })
 
 // generateJobPlistConfig tests
