@@ -1,0 +1,5 @@
+onCommandFail:
+  - match: "npm|pnpm|yarn|bun"
+    run: say "Cron burgundy package manager failed"
+  - match: "cronb|launchctl"
+    run: say "Cron command failed"
