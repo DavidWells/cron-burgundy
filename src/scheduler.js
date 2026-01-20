@@ -7,9 +7,14 @@ import { normalizeSchedule } from './cron-parser.js'
  */
 
 /**
+ * @typedef {typeof import('./actions/index.js').utils} Utils
+ */
+
+/**
  * @typedef {Object} JobContext
  * @property {JobLogger} logger - Logger for this job
- * @property {import('./actions/index.js').utils} utils - Utility functions (speak, playSound, notify)
+ * @property {Utils} utils - Utility functions (speak, playSound, notify)
+ * @property {Date|null} [lastRun] - Last run time for this job
  */
 
 /**

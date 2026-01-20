@@ -15,6 +15,13 @@
  * await runAllDue(jobs)
  */
 
+/**
+ * @typedef {import('./scheduler.js').Job} Job
+ * @typedef {import('./scheduler.js').JobContext} JobContext
+ * @typedef {import('./scheduler.js').JobLogger} JobLogger
+ * @typedef {import('./scheduler.js').Utils} Utils
+ */
+
 export { runAllDue } from './runner.js'
 export { getState, getLastRun, markRun } from './state.js'
 export { shouldRun, getIntervalMs, getNextRun, formatInterval } from './scheduler.js'

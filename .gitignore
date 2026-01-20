@@ -43,6 +43,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# generated types
+/types
+
 # Local Netlify folder
 .netlify
 .cursor/

@@ -4,6 +4,7 @@
   "description": "Simple macOS cron manager with missed job recovery",
   "type": "module",
   "main": "src/index.js",
+  "types": "types/index.d.ts",
   "bin": {
     "cron-burgundy": "./bin/cli.js",
     "cronb": "./bin/cli.js"
@@ -11,6 +12,8 @@
   "scripts": {
     "start": "node src/runner.js",
     "test": "uvu src \".test.js$\"",
+    "types": "tsc",
+    "fail": "exit 1",
     "publish": "git push origin && git push origin --tags",
     "release:patch": "npm version patch && npm publish",
     "release:minor": "npm version minor && npm publish",
@@ -47,6 +50,8 @@
     "plist": "^3.1.0"
   },
   "devDependencies": {
+    "@types/node": "^25.0.9",
+    "typescript": "^5.9.3",
     "uvu": "^0.5.6"
   }
 }
