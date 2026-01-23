@@ -25,5 +25,5 @@
 export { runAllDue } from './runner.js'
 export { getState, getLastRun, markRun } from './state.js'
 export { shouldRun, getIntervalMs, getNextRun, formatInterval } from './scheduler.js'
-export { installJob, uninstallJob, sync, uninstallAll, listInstalledPlists, generateJobPlistConfig, getJobLabel, getJobPlistPath, parsePlistFilename } from './launchd.js'
-export { registerFile, unregisterFile, getRegistry, loadAllJobs, findJob, getAllJobsFlat, qualifyJobId, parseQualifiedId, getNamespace, getAllNamespaces, findJobsByNamespace } from './registry.js'
+export { installJob, uninstallJob, sync, uninstallAll, listInstalledPlists, generateJobPlistConfig, getJobLabel, getJobPlistPath, parsePlistFilename, MIN_INTERVAL_MS } from './launchd.js'
+export { registerFile, unregisterFile, getRegistry, loadAllJobs, findJob, getAllJobsFlat, qualifyJobId, parseQualifiedId, getNamespace, getAllNamespaces, findJobsByNamespace, validateJobId } from './registry.js'

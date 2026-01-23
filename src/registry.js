@@ -69,6 +69,46 @@ async function saveRegistry(registry) {
 }
 
 /**
+ * Validate a job ID format
+ * Job IDs must not contain characters that could cause issues in file paths,
+ * plist labels, or namespace parsing.
+ * @param {string} jobId
+ * @throws {Error} if the job ID is invalid
+ */
+export function validateJobId(jobId) {
+  if (!jobId || typeof jobId !== 'string') {
+    throw new Error('Job ID must be a non-empty string')
+  }
+
+  if (jobId.length > 100) {
+    throw new Error(`Job ID "${jobId}" is too long (max 100 characters)`)
+  }
+
+  // Block dots - they cause parsing issues in plist filenames (namespace.jobId format)
+  if (jobId.includes('.')) {
+    throw new Error(`Job ID "${jobId}" cannot contain dots (.) - they conflict with plist naming`)
+  }
+
+  // Block path traversal and file system unsafe characters
+  const invalidChars = ['/', '\\', '..', ' ', '\t', '\n', '\r', '\0', ':', '*', '?', '"', '<', '>', '|']
+  for (const char of invalidChars) {
+    if (jobId.includes(char)) {
+      throw new Error(`Job ID "${jobId}" contains invalid character: "${char}"`)
+    }
+  }
+
+  // Must start with alphanumeric or underscore
+  if (!/^[a-zA-Z0-9_]/.test(jobId)) {
+    throw new Error(`Job ID "${jobId}" must start with a letter, number, or underscore`)
+  }
+
+  // Only allow alphanumeric, underscore, and hyphen
+  if (!/^[a-zA-Z0-9_-]+$/.test(jobId)) {
+    throw new Error(`Job ID "${jobId}" contains invalid characters - only letters, numbers, underscores, and hyphens are allowed`)
+  }
+}
+
+/**
  * Qualify a job ID with namespace
  * @param {string} jobId
  * @param {string|null} namespace
