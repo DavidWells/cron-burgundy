@@ -1,6 +1,6 @@
 {
   "name": "cron-burgundy",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "Simple macOS cron manager with missed job recovery",
   "type": "module",
   "main": "src/index.js",
