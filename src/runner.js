@@ -25,43 +25,45 @@ function getStaleLockMs(job) {
 /**
  * Run a single job if it's due
  * @param {Job} job
- * @returns {Promise<'ran'|'skipped'|'disabled'|'paused'>}
+ * @returns {Promise<'ran'|'skipped'|'disabled'|'paused'|'failed'>}
  */
 async function runIfDue(job) {
+  const jobId = job._qualifiedId || job.id
+
   if (!isEnabled(job)) {
     return 'disabled'
   }
 
-  if (await isPaused(job.id)) {
+  if (await isPaused(jobId)) {
     return 'paused'
   }
 
-  const lastRun = await getLastRun(job.id)
-  
+  const lastRun = await getLastRun(jobId)
+
   if (!shouldRun(job, lastRun)) {
     return 'skipped'
   }
-  
-  await logJobSeparator(job.id)
-  await logRunner(`Executing on ${humanTime()}`, job.id)
-  await logJob(job.id, 'Starting execution')
+
+  await logJobSeparator(jobId)
+  await logRunner(`Executing on ${humanTime()}`, jobId)
+  await logJob(jobId, 'Starting execution')
   const start = Date.now()
 
   try {
     // Pass logger, utils, and lastRun to job - capture stdout to job log
-    const logger = createJobLogger(job.id)
-    await captureJobOutput(job.id, () => job.run({ logger, utils, lastRun }))
-    await markRun(job.id)
+    const logger = createJobLogger(jobId)
+    await captureJobOutput(jobId, () => job.run({ logger, utils, lastRun }))
+    await markRun(jobId)
     const duration = Date.now() - start
-    await logRunner(`Completed in ${duration}ms`, job.id)
-    await logJob(job.id, `Completed in ${duration}ms`)
+    await logRunner(`Completed in ${duration}ms`, jobId)
+    await logJob(jobId, `Completed in ${duration}ms`)
     return 'ran'
   } catch (err) {
-    await logRunner(`Failed: ${err.message}`, job.id)
-    await logJob(job.id, `Failed: ${err.message}`)
-    utils.notify(`${job.id} failed`, err.message || 'Unknown error')
+    await logRunner(`Failed: ${err.message}`, jobId)
+    await logJob(jobId, `Failed: ${err.message}`)
+    utils.notify(`${jobId} failed`, err.message || 'Unknown error')
     // Don't mark as run on failure - will retry next time
-    return 'skipped'
+    return 'failed'
   }
 }
 
@@ -82,20 +84,23 @@ export async function runAllDue(jobs) {
   const failed = []
 
   for (const job of jobs) {
+    const jobId = job._qualifiedId || job.id
     try {
       const result = await runIfDue(job)
       if (result === 'ran') {
-        ran.push(job.id)
+        ran.push(jobId)
       } else if (result === 'disabled') {
-        disabled.push(job.id)
+        disabled.push(jobId)
       } else if (result === 'paused') {
-        paused.push(job.id)
+        paused.push(jobId)
+      } else if (result === 'failed') {
+        failed.push(jobId)
       } else {
-        skipped.push(job.id)
+        skipped.push(jobId)
       }
     } catch (err) {
-      await logRunner(`Error: ${err.message}`, job.id)
-      failed.push(job.id)
+      await logRunner(`Error: ${err.message}`, jobId)
+      failed.push(jobId)
     }
   }
 
@@ -175,48 +180,50 @@ export async function checkMissed(jobs) {
   const skipped = []
   
   for (const job of enabledJobs) {
+    const jobId = job._qualifiedId || job.id
+
     // Check if paused
-    if (await isPaused(job.id)) {
-      await logRunner(`Skipped - job is paused`, job.id)
-      skipped.push(job.id)
+    if (await isPaused(jobId)) {
+      await logRunner(`Skipped - job is paused`, jobId)
+      skipped.push(jobId)
       continue
     }
 
     // Acquire lock - skip if another instance is already running
     const staleLockMs = getStaleLockMs(job)
-    if (!await acquireLock(job.id, { staleLockMs })) {
-      await logRunner(`Skipped - another instance is running (locked)`, job.id)
-      skipped.push(job.id)
+    if (!await acquireLock(jobId, { staleLockMs })) {
+      await logRunner(`Skipped - another instance is running (locked)`, jobId)
+      skipped.push(jobId)
       continue
     }
 
     try {
-      const lastRun = await getLastRun(job.id)
+      const lastRun = await getLastRun(jobId)
 
       if (shouldRun(job, lastRun)) {
-        await logRunner(`Missed! Running on ${humanTime()}`, job.id)
-        await logJobSeparator(job.id)
-        await logJob(job.id, 'Missed job - running on wake')
+        await logRunner(`Missed! Running on ${humanTime()}`, jobId)
+        await logJobSeparator(jobId)
+        await logJob(jobId, 'Missed job - running on wake')
 
         const start = Date.now()
-        const logger = createJobLogger(job.id)
+        const logger = createJobLogger(jobId)
 
-        await captureJobOutput(job.id, () => job.run({ logger, utils, lastRun }))
-        await markRun(job.id)
+        await captureJobOutput(jobId, () => job.run({ logger, utils, lastRun }))
+        await markRun(jobId)
         const duration = Date.now() - start
-        await logRunner(`Completed in ${duration}ms`, job.id)
-        await logJob(job.id, `Completed in ${duration}ms`)
-        ran.push(job.id)
+        await logRunner(`Completed in ${duration}ms`, jobId)
+        await logJob(jobId, `Completed in ${duration}ms`)
+        ran.push(jobId)
       } else {
-        skipped.push(job.id)
+        skipped.push(jobId)
       }
     } catch (err) {
-      await logRunner(`Failed: ${err.message}`, job.id)
-      await logJob(job.id, `Failed: ${err.message}`)
-      utils.notify(`${job.id} failed`, err.message || 'Unknown error')
-      skipped.push(job.id)
+      await logRunner(`Failed: ${err.message}`, jobId)
+      await logJob(jobId, `Failed: ${err.message}`)
+      utils.notify(`${jobId} failed`, err.message || 'Unknown error')
+      skipped.push(jobId)
     } finally {
-      await releaseLock(job.id)
+      await releaseLock(jobId)
     }
   }
   
