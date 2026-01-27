@@ -5,6 +5,21 @@
  * @param {string} input - Human readable schedule or cron expression
  * @returns {string} Standard cron expression
  */
+/**
+ * Adjust hour for AM/PM designation
+ * @param {number} hour
+ * @param {string|undefined} amPm
+ * @returns {number}
+ */
+function adjustHourForAmPm(hour, amPm) {
+  if (amPm && amPm.toLowerCase() === 'pm' && hour !== 12) {
+    return hour + 12
+  } else if (amPm && amPm.toLowerCase() === 'am' && hour === 12) {
+    return 0
+  }
+  return hour
+}
+
 export function parseCronExpression(input) {
   if (!input || typeof input !== 'string') {
     throw new Error('Cron input must be a non-empty string')
@@ -78,16 +93,9 @@ export function parseCronExpression(input) {
   // Parse "at X:XX" patterns (e.g., "at 9:30", "at 14:00")
   const atTimeMatch = normalizedInput.match(/^at (\d{1,2}):(\d{2})(\s*(am|pm))?$/i)
   if (atTimeMatch) {
-    let hour = parseInt(atTimeMatch[1])
+    const hour = adjustHourForAmPm(parseInt(atTimeMatch[1]), atTimeMatch[4])
     const minute = parseInt(atTimeMatch[2])
-    const amPm = atTimeMatch[4]
-    
-    if (amPm && amPm.toLowerCase() === 'pm' && hour !== 12) {
-      hour += 12
-    } else if (amPm && amPm.toLowerCase() === 'am' && hour === 12) {
-      hour = 0
-    }
-    
+
     return `${minute} ${hour} * * *`
   }
 
@@ -146,16 +154,9 @@ export function parseCronExpression(input) {
     const days = weekdayTimeMatch[1].split(',').map(day => day.trim())
     const dayOfWeek = days.map(day => dayMap[day.toLowerCase()]).join(',')
     
-    let hour = parseInt(weekdayTimeMatch[2])
+    const hour = adjustHourForAmPm(parseInt(weekdayTimeMatch[2]), weekdayTimeMatch[5])
     const minute = parseInt(weekdayTimeMatch[3])
-    const amPm = weekdayTimeMatch[5]
-    
-    if (amPm && amPm.toLowerCase() === 'pm' && hour !== 12) {
-      hour += 12
-    } else if (amPm && amPm.toLowerCase() === 'am' && hour === 12) {
-      hour = 0
-    }
-    
+
     return `${minute} ${hour} * * ${dayOfWeek}`
   }
 
@@ -163,16 +164,9 @@ export function parseCronExpression(input) {
   const weekdaysTimeMatch = normalizedInput.match(/^on (weekdays|weekends) at (\d{1,2}):(\d{2})(\s*(am|pm))?$/i)
   if (weekdaysTimeMatch) {
     const dayRange = weekdaysTimeMatch[1].toLowerCase() === 'weekdays' ? '1-5' : '0,6'
-    let hour = parseInt(weekdaysTimeMatch[2])
+    const hour = adjustHourForAmPm(parseInt(weekdaysTimeMatch[2]), weekdaysTimeMatch[5])
     const minute = parseInt(weekdaysTimeMatch[3])
-    const amPm = weekdaysTimeMatch[5]
-    
-    if (amPm && amPm.toLowerCase() === 'pm' && hour !== 12) {
-      hour += 12
-    } else if (amPm && amPm.toLowerCase() === 'am' && hour === 12) {
-      hour = 0
-    }
-    
+
     return `${minute} ${hour} * * ${dayRange}`
   }
 
@@ -180,15 +174,8 @@ export function parseCronExpression(input) {
   const ordinalMonthMatch = normalizedInput.match(/^on (\d{1,2})(?:st|nd|rd|th) of month at (\d{1,2}):(\d{2})(\s*(am|pm))?$/i)
   if (ordinalMonthMatch) {
     const dayOfMonth = parseInt(ordinalMonthMatch[1])
-    let hour = parseInt(ordinalMonthMatch[2])
+    const hour = adjustHourForAmPm(parseInt(ordinalMonthMatch[2]), ordinalMonthMatch[5])
     const minute = parseInt(ordinalMonthMatch[3])
-    const amPm = ordinalMonthMatch[5]
-
-    if (amPm && amPm.toLowerCase() === 'pm' && hour !== 12) {
-      hour += 12
-    } else if (amPm && amPm.toLowerCase() === 'am' && hour === 12) {
-      hour = 0
-    }
 
     return `${minute} ${hour} ${dayOfMonth} * *`
   }
