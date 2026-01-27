@@ -10,11 +10,15 @@ const RUNNER_LOG = path.join(LOG_DIR, 'runner.log')
 const MAX_LOG_SIZE = 20 * 1024 * 1024  // 20MB
 const MAX_ROTATED_FILES = 2            // Keep .log, .log.1, .log.2
 
+let logDirsCreated = false
+
 /**
  * Ensure log directories exist
  */
 async function ensureLogDirs() {
+  if (logDirsCreated) return
   await fs.mkdir(JOBS_LOG_DIR, { recursive: true })
+  logDirsCreated = true
 }
 
 /**
