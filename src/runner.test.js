@@ -161,10 +161,9 @@ test('runAllDue: records failed jobs separately', async () => {
   }]
 
   try {
-    // Job function throws, but runAllDue catches and returns skipped
     const result = await runAllDue(jobs)
-    // Failed jobs are returned as 'skipped' since they didn't complete successfully
-    assert.ok(result.skipped.includes(jobId) || result.failed.includes(jobId), 'failed job should be in skipped or failed array')
+    assert.ok(result.failed.includes(jobId), 'failed job should be in failed array')
+    assert.not.ok(result.skipped.includes(jobId), 'failed job should not be in skipped array')
   } finally {
     await cleanupTestEntry(jobId)
   }
@@ -346,6 +345,105 @@ test('checkMissed: skips paused jobs', async () => {
   } finally {
     await resume(jobId)
     await cleanupTestEntry(jobId)
+  }
+})
+
+// ========================
+// Qualified ID tests
+// ========================
+
+test('runAllDue: uses _qualifiedId for state operations', async () => {
+  const baseId = testId()
+  const qualifiedId = `ns/${baseId}`
+  let executed = false
+
+  const jobs = [{
+    id: baseId,
+    _qualifiedId: qualifiedId,
+    interval: 60000,
+    run: async () => { executed = true }
+  }]
+
+  try {
+    const result = await runAllDue(jobs)
+    assert.ok(executed, 'job should have executed')
+    assert.ok(result.ran.includes(qualifiedId), 'ran array should use qualified ID')
+
+    // State should be recorded under qualified ID
+    const lastRun = await getLastRun(qualifiedId)
+    assert.ok(lastRun instanceof Date, 'should have recorded last run under qualified ID')
+  } finally {
+    await cleanupTestEntry(qualifiedId)
+  }
+})
+
+test('runAllDue: two jobs with same base ID but different namespaces run independently', async () => {
+  const baseId = testId()
+  const qid1 = `ns1/${baseId}`
+  const qid2 = `ns2/${baseId}`
+  let executed1 = false
+  let executed2 = false
+
+  const jobs = [
+    { id: baseId, _qualifiedId: qid1, interval: 60000, run: async () => { executed1 = true } },
+    { id: baseId, _qualifiedId: qid2, interval: 60000, run: async () => { executed2 = true } }
+  ]
+
+  try {
+    const result = await runAllDue(jobs)
+    assert.ok(executed1, 'first namespace job should execute')
+    assert.ok(executed2, 'second namespace job should execute')
+    assert.ok(result.ran.includes(qid1), 'ran should include first qualified ID')
+    assert.ok(result.ran.includes(qid2), 'ran should include second qualified ID')
+  } finally {
+    await cleanupTestEntry(qid1)
+    await cleanupTestEntry(qid2)
+  }
+})
+
+test('runAllDue: routes failed jobs to failed array', async () => {
+  const jobId = testId()
+
+  const jobs = [{
+    id: jobId,
+    interval: 60000,
+    run: async () => { throw new Error('test error') }
+  }]
+
+  try {
+    const result = await runAllDue(jobs)
+    assert.ok(result.failed.includes(jobId), 'failed job should be in failed array')
+    assert.not.ok(result.skipped.includes(jobId), 'failed job should NOT be in skipped array')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('checkMissed: uses _qualifiedId for state operations', async () => {
+  const baseId = testId()
+  const qualifiedId = `ns/${baseId}`
+  let executed = false
+
+  const jobs = [{
+    id: baseId,
+    _qualifiedId: qualifiedId,
+    interval: 1000,
+    run: async () => { executed = true }
+  }]
+
+  try {
+    // Mark as run 2 seconds ago under qualified ID
+    const twoSecondsAgo = new Date(Date.now() - 2000)
+    const data = await fs.readFile(STATE_FILE, 'utf8').catch(() => '{}')
+    const state = JSON.parse(data)
+    state[qualifiedId] = twoSecondsAgo.toISOString()
+    await fs.writeFile(STATE_FILE, JSON.stringify(state, null, 2))
+
+    const result = await checkMissed(jobs)
+    assert.ok(executed, 'overdue job should execute')
+    assert.ok(result.ran.includes(qualifiedId), 'ran array should use qualified ID')
+  } finally {
+    await cleanupTestEntry(qualifiedId)
   }
 })
 
