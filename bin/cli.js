@@ -17,6 +17,10 @@ import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs
 import { getRegistry, registerFile, unregisterFile, loadAllJobs, findJob, getAllJobsFlat, qualifyJobId, getNamespace, findJobsByNamespace } from '../src/registry.js'
 import { clearStaleLock } from '../src/lock.js'
 import * as p from '@clack/prompts'
+import { createRequire } from 'module'
+
+const require = createRequire(import.meta.url)
+const { version } = require('../package.json')
 
 /**
  * Get display ID for a job - short if unique, qualified if collision
@@ -46,7 +50,7 @@ const program = new Command()
 program
   .name('cron-burgundy')
   .description('Simple macOS cron manager with missed job recovery')
-  .version('1.0.0')
+  .version(version)
 
 // === Primary commands ===
 
@@ -178,7 +182,7 @@ program
           console.error('Available jobs:')
           for (const job of allJobs) {
             const status = isEnabled(job) ? '✓' : '✗'
-            console.error(`  ${status} ${job.id}`)
+            console.error(`  ${status} ${job._qualifiedId}`)
           }
         } else {
           console.error('No jobs registered. Run: cron-burgundy sync <path/to/jobs.js>')
@@ -211,8 +215,8 @@ program
       const selected = await p.autocomplete({
         message: 'Select job to run',
         options: enabledJobs.map(j => ({
-          value: j.id,
-          label: j.id,
+          value: j._qualifiedId,
+          label: j._qualifiedId,
           hint: j.description
         }))
       })
@@ -383,18 +387,18 @@ program
       const allJobs = await getAllJobsFlat()
       const pauseStatus = await getPauseStatus()
       const unpausedJobs = allJobs.filter(j =>
-        isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
+        isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j._qualifiedId)
       )
 
       // Show currently paused jobs
       const pausedJobs = pauseStatus.all
         ? allJobs.filter(j => isEnabled(j))
-        : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
+        : allJobs.filter(j => pauseStatus.jobs.includes(j._qualifiedId))
 
       if (pausedJobs.length > 0) {
         console.log('\nCurrently paused:')
         for (const job of pausedJobs) {
-          console.log(`  - ${job.id}`)
+          console.log(`  - ${job._qualifiedId}`)
         }
         console.log('')
       }
@@ -407,8 +411,8 @@ program
       const selected = await p.multiselect({
         message: 'Select jobs to pause',
         options: unpausedJobs.map(j => ({
-          value: j.id,
-          label: j.id,
+          value: j._qualifiedId,
+          label: j._qualifiedId,
           hint: j.description
         }))
       })
@@ -421,7 +425,7 @@ program
       jobIds = selected
     } else if (name === 'all') {
       const allJobs = await getAllJobsFlat()
-      jobIds = allJobs.map(j => j.id)
+      jobIds = allJobs.map(j => j._qualifiedId)
       await pause('all')
     } else {
       const result = await findJob(name)
@@ -458,17 +462,17 @@ async function handleUnpause(name) {
     // If globally paused, show all enabled jobs
     const pausedJobs = pauseStatus.all
       ? allJobs.filter(j => isEnabled(j))
-      : allJobs.filter(j => pauseStatus.jobs.includes(j.id))
+      : allJobs.filter(j => pauseStatus.jobs.includes(j._qualifiedId))
 
     // Show currently running jobs
     const runningJobs = allJobs.filter(j =>
-      isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j.id)
+      isEnabled(j) && !pauseStatus.all && !pauseStatus.jobs.includes(j._qualifiedId)
     )
 
     if (runningJobs.length > 0) {
       console.log('\nCurrently running:')
       for (const job of runningJobs) {
-        console.log(`  - ${job.id}`)
+        console.log(`  - ${job._qualifiedId}`)
       }
       console.log('')
     }
@@ -481,8 +485,8 @@ async function handleUnpause(name) {
     const selected = await p.multiselect({
       message: 'Select jobs to unpause',
       options: pausedJobs.map(j => ({
-        value: j.id,
-        label: j.id,
+        value: j._qualifiedId,
+        label: j._qualifiedId,
         hint: j.description
       }))
     })
@@ -495,7 +499,7 @@ async function handleUnpause(name) {
     jobIds = selected
   } else if (name === 'all') {
     const allJobs = await getAllJobsFlat()
-    jobIds = allJobs.map(j => j.id)
+    jobIds = allJobs.map(j => j._qualifiedId)
     await resume('all')
   } else {
     const result = await findJob(name)
