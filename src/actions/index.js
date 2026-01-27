@@ -1,7 +1,16 @@
 /**
  * Utility actions for cron jobs
  */
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
+
+/**
+ * Escape a string for use in AppleScript double-quoted strings
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeAppleScript(str) {
+  return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
 
 const sounds = [
   'Ping',
@@ -26,13 +35,13 @@ export function playSound(sound = 'Ping') {
   const isSystemSound = sounds.includes(sound)
   if (isSystemSound) {
     try {
-      execSync(`afplay /System/Library/Sounds/${sound}.aiff`)
+      execFileSync('afplay', [`/System/Library/Sounds/${sound}.aiff`])
     } catch (err) {
       console.log('Could not play sound:', err.message)
     }
   } else {
     try {
-      execSync(`say "${sound}"`)
+      execFileSync('say', [sound])
     } catch (err) {
       console.log('Could not speak:', err.message)
     }
@@ -45,7 +54,7 @@ export function playSound(sound = 'Ping') {
  */
 export function speak(text = 'Hello, world!') {
   try {
-    execSync(`say "${text}"`)
+    execFileSync('say', [text])
   } catch (err) {
     console.log('Could not speak:', err.message)
   }
@@ -59,12 +68,12 @@ export function speak(text = 'Hello, world!') {
  */
 export function notify(title, message, options = {}) {
   try {
-    let script = `display notification "${message}" with title "${title}"`
+    let script = `display notification "${escapeAppleScript(message)}" with title "${escapeAppleScript(title)}"`
     if (options.sound) {
       const soundName = typeof options.sound === 'string' ? options.sound : 'default'
-      script += ` sound name "${soundName}"`
+      script += ` sound name "${escapeAppleScript(soundName)}"`
     }
-    execSync(`osascript -e '${script}'`)
+    execFileSync('osascript', ['-e', script])
   } catch (err) {
     console.log('Could not show notification:', err.message)
   }
