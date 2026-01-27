@@ -89,14 +89,6 @@ export function validateJobId(jobId) {
     throw new Error(`Job ID "${jobId}" cannot contain dots (.) - they conflict with plist naming`)
   }
 
-  // Block path traversal and file system unsafe characters
-  const invalidChars = ['/', '\\', '..', ' ', '\t', '\n', '\r', '\0', ':', '*', '?', '"', '<', '>', '|']
-  for (const char of invalidChars) {
-    if (jobId.includes(char)) {
-      throw new Error(`Job ID "${jobId}" contains invalid character: "${char}"`)
-    }
-  }
-
   // Must start with alphanumeric or underscore
   if (!/^[a-zA-Z0-9_]/.test(jobId)) {
     throw new Error(`Job ID "${jobId}" must start with a letter, number, or underscore`)
