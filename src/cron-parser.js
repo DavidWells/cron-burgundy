@@ -1,10 +1,8 @@
 /**
  * Convert human-readable strings to cron expressions
  * Based on common patterns and schedules
- * 
- * @param {string} input - Human readable schedule or cron expression
- * @returns {string} Standard cron expression
  */
+
 /**
  * Adjust hour for AM/PM designation
  * @param {number} hour
@@ -20,6 +18,10 @@ function adjustHourForAmPm(hour, amPm) {
   return hour
 }
 
+/**
+ * @param {string} input - Human readable schedule or cron expression
+ * @returns {string} Standard cron expression
+ */
 export function parseCronExpression(input) {
   if (!input || typeof input !== 'string') {
     throw new Error('Cron input must be a non-empty string')
