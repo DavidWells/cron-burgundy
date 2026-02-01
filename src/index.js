@@ -23,7 +23,7 @@
  */
 
 export { runAllDue } from './runner.js'
-export { getState, getLastRun, markRun, pause, resume, isPaused, getPauseStatus } from './state.js'
+export { getState, getLastRun, markRun, pause, resume, isPaused, getPauseStatus, isSuspended, markSuspended, clearSuspended, getSuspendedJobs } from './state.js'
 export { shouldRun, getIntervalMs, getNextRun, formatInterval } from './scheduler.js'
-export { installJob, uninstallJob, sync, uninstallAll, listInstalledPlists, generateJobPlistConfig, getJobLabel, getJobPlistPath, parsePlistFilename, MIN_INTERVAL_MS } from './launchd.js'
+export { installJob, uninstallJob, suspendJob, resumeJob, sync, uninstallAll, listInstalledPlists, generateJobPlistConfig, getJobLabel, getJobPlistPath, parsePlistFilename, MIN_INTERVAL_MS } from './launchd.js'
 export { registerFile, unregisterFile, getRegistry, loadAllJobs, findJob, getAllJobsFlat, qualifyJobId, parseQualifiedId, getNamespace, getAllNamespaces, findJobsByNamespace, validateJobId } from './registry.js'

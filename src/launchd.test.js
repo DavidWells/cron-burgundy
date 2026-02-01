@@ -3,7 +3,9 @@
  */
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
-import { expandCronField, cronToCalendarInterval, generateJobPlistConfig, MIN_INTERVAL_MS, getJobLabel, parsePlistFilename } from './launchd.js'
+import fs from 'fs/promises'
+import { expandCronField, cronToCalendarInterval, generateJobPlistConfig, MIN_INTERVAL_MS, getJobLabel, parsePlistFilename, installJob, uninstallJob, suspendJob, resumeJob, getJobPlistPath } from './launchd.js'
+import { isSuspended, clearSuspended } from './state.js'
 
 // expandCronField tests
 test('expandCronField: wildcard returns null', () => {
@@ -299,6 +301,87 @@ test('generateJobPlistConfig: accepts valid job ID starting with number', () => 
   const job = { id: '123job', interval: 60000 }
   const config = generateJobPlistConfig(job, '/path')
   assert.equal(config.Label, 'com.cron-burgundy.job.123job')
+})
+
+// === suspendJob / resumeJob integration tests ===
+// These install real launchd jobs and test suspend/resume
+
+const TEST_NS = 'test-suspend'
+const TEST_JOB_ID = `sj-${Date.now()}`
+const TEST_JOB = { id: TEST_JOB_ID, interval: 60000, run: async () => {} }
+
+test('suspendJob: returns not_installed for missing plist', async () => {
+  const result = await suspendJob('nonexistent-job-xyz', { namespace: TEST_NS })
+  assert.equal(result, 'not_installed')
+})
+
+test('suspendJob: suspends an installed job', async () => {
+  try {
+    await installJob(TEST_JOB, '/tmp', TEST_NS)
+    const result = await suspendJob(TEST_JOB_ID, { namespace: TEST_NS })
+    assert.equal(result, 'suspended')
+    assert.equal(await isSuspended(`${TEST_NS}/${TEST_JOB_ID}`), true)
+
+    // Plist should still exist on disk
+    const plistPath = getJobPlistPath(TEST_JOB_ID, TEST_NS)
+    const exists = await fs.access(plistPath).then(() => true).catch(() => false)
+    assert.ok(exists, 'plist should still exist on disk')
+  } finally {
+    await clearSuspended(`${TEST_NS}/${TEST_JOB_ID}`)
+    await uninstallJob(TEST_JOB_ID, { namespace: TEST_NS })
+  }
+})
+
+test('suspendJob: returns already_suspended on double suspend', async () => {
+  try {
+    await installJob(TEST_JOB, '/tmp', TEST_NS)
+    await suspendJob(TEST_JOB_ID, { namespace: TEST_NS })
+    const result = await suspendJob(TEST_JOB_ID, { namespace: TEST_NS })
+    assert.equal(result, 'already_suspended')
+  } finally {
+    await clearSuspended(`${TEST_NS}/${TEST_JOB_ID}`)
+    await uninstallJob(TEST_JOB_ID, { namespace: TEST_NS })
+  }
+})
+
+test('resumeJob: resumes a suspended job', async () => {
+  try {
+    await installJob(TEST_JOB, '/tmp', TEST_NS)
+    await suspendJob(TEST_JOB_ID, { namespace: TEST_NS })
+    const result = await resumeJob(TEST_JOB_ID, { namespace: TEST_NS })
+    assert.equal(result, 'resumed')
+    assert.equal(await isSuspended(`${TEST_NS}/${TEST_JOB_ID}`), false)
+  } finally {
+    await uninstallJob(TEST_JOB_ID, { namespace: TEST_NS })
+  }
+})
+
+test('resumeJob: returns not_suspended for non-suspended job', async () => {
+  try {
+    await installJob(TEST_JOB, '/tmp', TEST_NS)
+    const result = await resumeJob(TEST_JOB_ID, { namespace: TEST_NS })
+    assert.equal(result, 'not_suspended')
+  } finally {
+    await uninstallJob(TEST_JOB_ID, { namespace: TEST_NS })
+  }
+})
+
+test('resumeJob: returns not_installed if plist deleted while suspended', async () => {
+  try {
+    await installJob(TEST_JOB, '/tmp', TEST_NS)
+    await suspendJob(TEST_JOB_ID, { namespace: TEST_NS })
+
+    // Delete plist behind its back
+    const plistPath = getJobPlistPath(TEST_JOB_ID, TEST_NS)
+    await fs.unlink(plistPath).catch(() => {})
+
+    const result = await resumeJob(TEST_JOB_ID, { namespace: TEST_NS })
+    assert.equal(result, 'not_installed')
+    // Should have cleared stale suspended state
+    assert.equal(await isSuspended(`${TEST_NS}/${TEST_JOB_ID}`), false)
+  } finally {
+    await clearSuspended(`${TEST_NS}/${TEST_JOB_ID}`)
+  }
 })
 
 test.run()

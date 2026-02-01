@@ -1,4 +1,4 @@
-import { getLastRun, markRun, isPaused } from './state.js'
+import { getLastRun, markRun, isPaused, isSuspended } from './state.js'
 import { shouldRun, isEnabled, getIntervalMs, getNextRun } from './scheduler.js'
 import { logRunner, logJob, createJobLogger, logJobSeparator, captureJobOutput, humanTime } from './logger.js'
 import { acquireLock, releaseLock } from './lock.js'
@@ -36,6 +36,10 @@ async function runIfDue(job) {
 
   if (await isPaused(jobId)) {
     return 'paused'
+  }
+
+  if (await isSuspended(jobId)) {
+    return 'suspended'
   }
 
   const lastRun = await getLastRun(jobId)
@@ -81,6 +85,7 @@ export async function runAllDue(jobs) {
   const skipped = []
   const disabled = []
   const paused = []
+  const suspended = []
   const failed = []
 
   for (const job of jobs) {
@@ -93,6 +98,8 @@ export async function runAllDue(jobs) {
         disabled.push(jobId)
       } else if (result === 'paused') {
         paused.push(jobId)
+      } else if (result === 'suspended') {
+        suspended.push(jobId)
       } else if (result === 'failed') {
         failed.push(jobId)
       } else {
@@ -104,9 +111,9 @@ export async function runAllDue(jobs) {
     }
   }
 
-  await logRunner(`=== Summary: ran=${ran.length}, skipped=${skipped.length}, disabled=${disabled.length}, paused=${paused.length}, failed=${failed.length} ===`)
+  await logRunner(`=== Summary: ran=${ran.length}, skipped=${skipped.length}, disabled=${disabled.length}, paused=${paused.length}, suspended=${suspended.length}, failed=${failed.length} ===`)
 
-  return { ran, skipped, disabled, paused, failed }
+  return { ran, skipped, disabled, paused, suspended, failed }
 }
 
 /**
@@ -119,9 +126,14 @@ export async function runJobNow(job, options = {}) {
   // Use qualified ID for namespaced jobs, fallback to base id
   const jobId = job._qualifiedId || job.id
 
-  // Check if paused (only for scheduled runs - manual runs bypass pause)
+  // Check if paused or suspended (only for scheduled runs - manual runs bypass)
   if (options.scheduled && await isPaused(jobId)) {
     await logRunner(`Skipped - job is paused`, jobId)
+    return
+  }
+
+  if (options.scheduled && await isSuspended(jobId)) {
+    await logRunner(`Skipped - job is suspended`, jobId)
     return
   }
 

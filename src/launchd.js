@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url'
 import plist from 'plist'
 import { normalizeSchedule } from './cron-parser.js'
 import { clearLock } from './lock.js'
-import { resume } from './state.js'
+import { resume, isSuspended, markSuspended, clearSuspended } from './state.js'
 import { qualifyJobId, validateJobId } from './registry.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -310,16 +310,75 @@ export async function uninstallJob(jobId, options = {}) {
     await fs.unlink(plistPath)
     await clearLock(qualifiedId)
     await resume(qualifiedId)  // Clear pause state
+    await clearSuspended(qualifiedId)  // Clear suspended state
     console.log(`  ✗ ${qualifiedId}${desc}`)
   } catch (err) {
     if (err.code === 'ENOENT') {
       await clearLock(qualifiedId)
       await resume(qualifiedId)  // Clear pause state
+      await clearSuspended(qualifiedId)  // Clear suspended state
       if (alwaysPrint) console.log(`  ✗ ${qualifiedId}${desc}`)
     } else {
       throw err
     }
   }
+}
+
+/**
+ * Suspend a job — unload from launchd but keep plist on disk
+ * @param {string} jobId
+ * @param {{ namespace?: string|null }} [options]
+ * @returns {Promise<'suspended'|'already_suspended'|'not_installed'>}
+ */
+export async function suspendJob(jobId, options = {}) {
+  requireMacOS()
+  const { namespace = null } = options
+  const qualifiedId = qualifyJobId(jobId, namespace)
+  const plistPath = getJobPlistPath(jobId, namespace)
+
+  // Check plist exists on disk
+  try {
+    await fs.access(plistPath)
+  } catch {
+    return 'not_installed'
+  }
+
+  if (await isSuspended(qualifiedId)) {
+    return 'already_suspended'
+  }
+
+  unloadPlist(plistPath)
+  await markSuspended(qualifiedId)
+  return 'suspended'
+}
+
+/**
+ * Resume a suspended job — reload plist into launchd
+ * @param {string} jobId
+ * @param {{ namespace?: string|null }} [options]
+ * @returns {Promise<'resumed'|'not_suspended'|'not_installed'>}
+ */
+export async function resumeJob(jobId, options = {}) {
+  requireMacOS()
+  const { namespace = null } = options
+  const qualifiedId = qualifyJobId(jobId, namespace)
+  const plistPath = getJobPlistPath(jobId, namespace)
+
+  if (!await isSuspended(qualifiedId)) {
+    return 'not_suspended'
+  }
+
+  // Check plist still exists (may have been deleted by uninstallJob)
+  try {
+    await fs.access(plistPath)
+  } catch {
+    await clearSuspended(qualifiedId)
+    return 'not_installed'
+  }
+
+  loadPlist(plistPath)
+  await clearSuspended(qualifiedId)
+  return 'resumed'
 }
 
 /**
