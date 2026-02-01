@@ -237,13 +237,37 @@ export async function getPauseStatus() {
 }
 
 /**
+ * Normalize a suspended entry (handles old string format and new object format)
+ * @param {string|{id: string, at: number}} entry
+ * @returns {{ id: string, at: number }}
+ */
+function normalizeSuspendedEntry(entry) {
+  if (typeof entry === 'string') return { id: entry, at: 0 }
+  return entry
+}
+
+/**
  * Check if a job is suspended (launchd unloaded but plist kept)
  * @param {string} jobId
  * @returns {Promise<boolean>}
  */
 export async function isSuspended(jobId) {
   const state = await getState()
-  return Array.isArray(state._suspended) && state._suspended.includes(jobId)
+  if (!Array.isArray(state._suspended)) return false
+  return state._suspended.some(entry => normalizeSuspendedEntry(entry).id === jobId)
+}
+
+/**
+ * Get the epoch ms when a job was suspended
+ * @param {string} jobId
+ * @returns {Promise<number|null>} epoch ms, or null if not suspended
+ */
+export async function getSuspendedAt(jobId) {
+  const state = await getState()
+  if (!Array.isArray(state._suspended)) return null
+  const entry = state._suspended.find(e => normalizeSuspendedEntry(e).id === jobId)
+  if (!entry) return null
+  return normalizeSuspendedEntry(entry).at || null
 }
 
 /**
@@ -254,8 +278,9 @@ export async function isSuspended(jobId) {
 export async function markSuspended(jobId) {
   await updateState(state => {
     const suspended = Array.isArray(state._suspended) ? state._suspended : []
-    if (!suspended.includes(jobId)) {
-      suspended.push(jobId)
+    const exists = suspended.some(entry => normalizeSuspendedEntry(entry).id === jobId)
+    if (!exists) {
+      suspended.push({ id: jobId, at: Date.now() })
     }
     state._suspended = suspended
     return state
@@ -270,7 +295,7 @@ export async function markSuspended(jobId) {
 export async function clearSuspended(jobId) {
   await updateState(state => {
     if (Array.isArray(state._suspended)) {
-      state._suspended = state._suspended.filter(id => id !== jobId)
+      state._suspended = state._suspended.filter(entry => normalizeSuspendedEntry(entry).id !== jobId)
       if (state._suspended.length === 0) {
         delete state._suspended
       }
@@ -285,7 +310,8 @@ export async function clearSuspended(jobId) {
  */
 export async function getSuspendedJobs() {
   const state = await getState()
-  return Array.isArray(state._suspended) ? [...state._suspended] : []
+  if (!Array.isArray(state._suspended)) return []
+  return state._suspended.map(entry => normalizeSuspendedEntry(entry).id)
 }
 
 export { STATE_DIR, STATE_FILE }

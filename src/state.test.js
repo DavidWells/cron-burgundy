@@ -4,7 +4,7 @@
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
 import fs from 'fs/promises'
-import { getState, getLastRun, markRun, isPaused, pause, resume, getPauseStatus, isSuspended, markSuspended, clearSuspended, getSuspendedJobs, STATE_FILE } from './state.js'
+import { getState, getLastRun, markRun, isPaused, pause, resume, getPauseStatus, isSuspended, markSuspended, clearSuspended, getSuspendedJobs, getSuspendedAt, STATE_FILE } from './state.js'
 
 // Generate unique test job ID to avoid conflicts
 const testId = () => `test-state-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -21,9 +21,11 @@ async function cleanupTestEntry(jobId) {
       state._paused = state._paused.filter(id => id !== jobId)
       if (state._paused.length === 0) delete state._paused
     }
-    // Remove from _suspended array if present
+    // Remove from _suspended array if present (supports both string and object entries)
     if (Array.isArray(state._suspended)) {
-      state._suspended = state._suspended.filter(id => id !== jobId)
+      state._suspended = state._suspended.filter(entry =>
+        typeof entry === 'string' ? entry !== jobId : entry.id !== jobId
+      )
       if (state._suspended.length === 0) delete state._suspended
     }
     await fs.writeFile(STATE_FILE, JSON.stringify(state, null, 2))
@@ -223,6 +225,44 @@ test('clearSuspended: only clears target job', async () => {
   } finally {
     await cleanupTestEntry(jobId1)
     await cleanupTestEntry(jobId2)
+  }
+})
+
+test('getSuspendedAt: returns timestamp when job was suspended', async () => {
+  const jobId = testId()
+  try {
+    const before = Date.now()
+    await markSuspended(jobId)
+    const after = Date.now()
+
+    const at = await getSuspendedAt(jobId)
+    assert.ok(at !== null, 'should return timestamp')
+    assert.ok(at >= before, 'should be after start')
+    assert.ok(at <= after, 'should be before end')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('getSuspendedAt: returns null for non-suspended job', async () => {
+  const jobId = testId()
+  const at = await getSuspendedAt(jobId)
+  assert.equal(at, null)
+})
+
+test('markSuspended: preserves original timestamp on re-suspend', async () => {
+  const jobId = testId()
+  try {
+    await markSuspended(jobId)
+    const first = await getSuspendedAt(jobId)
+
+    await new Promise(r => setTimeout(r, 10))
+    await markSuspended(jobId)
+    const second = await getSuspendedAt(jobId)
+
+    assert.equal(first, second, 'timestamp should not change on idempotent re-suspend')
+  } finally {
+    await cleanupTestEntry(jobId)
   }
 })
 
