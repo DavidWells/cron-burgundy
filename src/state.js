@@ -236,4 +236,56 @@ export async function getPauseStatus() {
   return { all: false, jobs: [] }
 }
 
+/**
+ * Check if a job is suspended (launchd unloaded but plist kept)
+ * @param {string} jobId
+ * @returns {Promise<boolean>}
+ */
+export async function isSuspended(jobId) {
+  const state = await getState()
+  return Array.isArray(state._suspended) && state._suspended.includes(jobId)
+}
+
+/**
+ * Mark a job as suspended
+ * @param {string} jobId
+ * @returns {Promise<void>}
+ */
+export async function markSuspended(jobId) {
+  await updateState(state => {
+    const suspended = Array.isArray(state._suspended) ? state._suspended : []
+    if (!suspended.includes(jobId)) {
+      suspended.push(jobId)
+    }
+    state._suspended = suspended
+    return state
+  })
+}
+
+/**
+ * Clear suspended state for a job
+ * @param {string} jobId
+ * @returns {Promise<void>}
+ */
+export async function clearSuspended(jobId) {
+  await updateState(state => {
+    if (Array.isArray(state._suspended)) {
+      state._suspended = state._suspended.filter(id => id !== jobId)
+      if (state._suspended.length === 0) {
+        delete state._suspended
+      }
+    }
+    return state
+  })
+}
+
+/**
+ * Get all suspended job IDs
+ * @returns {Promise<string[]>}
+ */
+export async function getSuspendedJobs() {
+  const state = await getState()
+  return Array.isArray(state._suspended) ? [...state._suspended] : []
+}
+
 export { STATE_DIR, STATE_FILE }

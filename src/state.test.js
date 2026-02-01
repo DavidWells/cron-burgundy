@@ -4,7 +4,7 @@
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
 import fs from 'fs/promises'
-import { getState, getLastRun, markRun, isPaused, pause, resume, getPauseStatus, STATE_FILE } from './state.js'
+import { getState, getLastRun, markRun, isPaused, pause, resume, getPauseStatus, isSuspended, markSuspended, clearSuspended, getSuspendedJobs, STATE_FILE } from './state.js'
 
 // Generate unique test job ID to avoid conflicts
 const testId = () => `test-state-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -20,6 +20,11 @@ async function cleanupTestEntry(jobId) {
     if (Array.isArray(state._paused)) {
       state._paused = state._paused.filter(id => id !== jobId)
       if (state._paused.length === 0) delete state._paused
+    }
+    // Remove from _suspended array if present
+    if (Array.isArray(state._suspended)) {
+      state._suspended = state._suspended.filter(id => id !== jobId)
+      if (state._suspended.length === 0) delete state._suspended
     }
     await fs.writeFile(STATE_FILE, JSON.stringify(state, null, 2))
   } catch (err) {
@@ -147,6 +152,102 @@ test('getState: returns empty object when no state file', async () => {
   // This test just verifies getState doesn't throw for missing entries
   const state = await getState()
   assert.ok(typeof state === 'object', 'should return object')
+})
+
+// === Suspended state tests ===
+
+test('isSuspended: returns false for non-suspended job', async () => {
+  const jobId = testId()
+  const suspended = await isSuspended(jobId)
+  assert.equal(suspended, false)
+})
+
+test('markSuspended/clearSuspended: suspends and resumes specific job', async () => {
+  const jobId = testId()
+  try {
+    await markSuspended(jobId)
+    assert.equal(await isSuspended(jobId), true, 'should be suspended')
+
+    await clearSuspended(jobId)
+    assert.equal(await isSuspended(jobId), false, 'should not be suspended')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('markSuspended: idempotent - no duplicates', async () => {
+  const jobId = testId()
+  try {
+    await markSuspended(jobId)
+    await markSuspended(jobId)
+
+    const jobs = await getSuspendedJobs()
+    const count = jobs.filter(id => id === jobId).length
+    assert.equal(count, 1, 'should only appear once')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('getSuspendedJobs: returns all suspended job IDs', async () => {
+  const jobId1 = testId()
+  const jobId2 = testId()
+  try {
+    await markSuspended(jobId1)
+    await markSuspended(jobId2)
+
+    const jobs = await getSuspendedJobs()
+    assert.ok(jobs.includes(jobId1), 'should include job1')
+    assert.ok(jobs.includes(jobId2), 'should include job2')
+  } finally {
+    await cleanupTestEntry(jobId1)
+    await cleanupTestEntry(jobId2)
+  }
+})
+
+test('getSuspendedJobs: returns empty array when none suspended', async () => {
+  const jobs = await getSuspendedJobs()
+  assert.ok(Array.isArray(jobs), 'should return array')
+})
+
+test('clearSuspended: only clears target job', async () => {
+  const jobId1 = testId()
+  const jobId2 = testId()
+  try {
+    await markSuspended(jobId1)
+    await markSuspended(jobId2)
+
+    await clearSuspended(jobId1)
+    assert.equal(await isSuspended(jobId1), false, 'job1 should not be suspended')
+    assert.equal(await isSuspended(jobId2), true, 'job2 should still be suspended')
+  } finally {
+    await cleanupTestEntry(jobId1)
+    await cleanupTestEntry(jobId2)
+  }
+})
+
+test('suspended: independent from paused', async () => {
+  const jobId = testId()
+  try {
+    await pause(jobId)
+    await markSuspended(jobId)
+
+    assert.equal(await isPaused(jobId), true, 'should be paused')
+    assert.equal(await isSuspended(jobId), true, 'should be suspended')
+
+    // Clearing suspended should not affect paused
+    await clearSuspended(jobId)
+    assert.equal(await isPaused(jobId), true, 'should still be paused')
+    assert.equal(await isSuspended(jobId), false, 'should not be suspended')
+
+    // Resume paused should not affect suspended
+    await markSuspended(jobId)
+    await resume(jobId)
+    assert.equal(await isPaused(jobId), false, 'should not be paused')
+    assert.equal(await isSuspended(jobId), true, 'should still be suspended')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
 })
 
 test.run()
