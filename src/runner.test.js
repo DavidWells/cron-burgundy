@@ -447,4 +447,289 @@ test('checkMissed: uses _qualifiedId for state operations', async () => {
   }
 })
 
+// ========================
+// Shell command job tests
+// ========================
+
+test('runJobNow: executes shell command job', async () => {
+  const jobId = testId()
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    command: 'echo hello-from-command'
+  }
+
+  try {
+    await runJobNow(job)
+    const lastRun = await getLastRun(jobId)
+    assert.ok(lastRun instanceof Date, 'should have recorded last run')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runJobNow: command array joins with &&', async () => {
+  const jobId = testId()
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    command: ['echo first', 'echo second']
+  }
+
+  try {
+    await runJobNow(job)
+    const lastRun = await getLastRun(jobId)
+    assert.ok(lastRun instanceof Date, 'should have recorded last run')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runJobNow: command failure is treated as job failure', async () => {
+  const jobId = testId()
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    command: 'exit 1'
+  }
+
+  try {
+    await runJobNow(job)
+    assert.unreachable('should have thrown')
+  } catch (err) {
+    assert.ok(err, 'should throw on command failure')
+  }
+
+  try {
+    const lastRun = await getLastRun(jobId)
+    assert.not.ok(lastRun, 'should NOT mark run on failure')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runJobNow: command job respects custom cwd', async () => {
+  const jobId = testId()
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    command: 'pwd',
+    cwd: '/tmp'
+  }
+
+  try {
+    await runJobNow(job)
+    const lastRun = await getLastRun(jobId)
+    assert.ok(lastRun instanceof Date, 'should have recorded last run')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runJobNow: command job respects custom env', async () => {
+  const jobId = testId()
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    command: 'test "$MY_TEST_VAR" = "hello"',
+    env: { MY_TEST_VAR: 'hello' }
+  }
+
+  try {
+    await runJobNow(job)
+    const lastRun = await getLastRun(jobId)
+    assert.ok(lastRun instanceof Date, 'should succeed with custom env')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runJobNow: job with no run or command throws', async () => {
+  const jobId = testId()
+
+  const job = {
+    id: jobId,
+    interval: 60000
+  }
+
+  try {
+    await runJobNow(job)
+    assert.unreachable('should have thrown')
+  } catch (err) {
+    assert.ok(err.message.includes('no run'), 'error should mention missing run/command')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runAllDue: command job runs when due', async () => {
+  const jobId = testId()
+
+  const jobs = [{
+    id: jobId,
+    interval: 60000,
+    command: 'echo runAllDue-command-test'
+  }]
+
+  try {
+    const result = await runAllDue(jobs)
+    assert.ok(result.ran.includes(jobId), 'command job should be in ran array')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+// ========================
+// preRun hook tests
+// ========================
+
+test('runJobNow: preRun returning false skips execution', async () => {
+  const jobId = testId()
+  let executed = false
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    preRun: async () => false,
+    run: async () => { executed = true }
+  }
+
+  try {
+    await runJobNow(job)
+    assert.not.ok(executed, 'run() should not execute when preRun returns false')
+    const lastRun = await getLastRun(jobId)
+    assert.not.ok(lastRun, 'should NOT mark run when preRun returns false')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runJobNow: preRun returning true proceeds normally', async () => {
+  const jobId = testId()
+  let executed = false
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    preRun: async () => true,
+    run: async () => { executed = true }
+  }
+
+  try {
+    await runJobNow(job)
+    assert.ok(executed, 'run() should execute when preRun returns true')
+    const lastRun = await getLastRun(jobId)
+    assert.ok(lastRun instanceof Date, 'should mark run')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runJobNow: preRun returning undefined proceeds normally', async () => {
+  const jobId = testId()
+  let executed = false
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    preRun: async () => {},
+    run: async () => { executed = true }
+  }
+
+  try {
+    await runJobNow(job)
+    assert.ok(executed, 'run() should execute when preRun returns undefined')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runJobNow: preRun error is treated as job failure', async () => {
+  const jobId = testId()
+  let executed = false
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    preRun: async () => { throw new Error('preRun failed') },
+    run: async () => { executed = true }
+  }
+
+  try {
+    await runJobNow(job)
+    assert.unreachable('should have thrown')
+  } catch (err) {
+    assert.ok(err.message.includes('preRun failed'), 'should throw preRun error')
+  }
+
+  assert.not.ok(executed, 'run() should not execute after preRun error')
+  await cleanupTestEntry(jobId)
+})
+
+test('runJobNow: preRun receives context (logger, utils, lastRun)', async () => {
+  const jobId = testId()
+  let receivedCtx = null
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    preRun: async (ctx) => { receivedCtx = ctx },
+    run: async () => {}
+  }
+
+  try {
+    await runJobNow(job)
+    assert.ok(receivedCtx, 'preRun should receive context')
+    assert.ok(receivedCtx.logger, 'should have logger')
+    assert.ok(receivedCtx.utils, 'should have utils')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runJobNow: preRun false skips command job too', async () => {
+  const jobId = testId()
+
+  const job = {
+    id: jobId,
+    interval: 60000,
+    preRun: async () => false,
+    command: 'echo should-not-run'
+  }
+
+  try {
+    await runJobNow(job)
+    const lastRun = await getLastRun(jobId)
+    assert.not.ok(lastRun, 'should NOT mark run when preRun returns false')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
+test('runAllDue: preRun false skips execution in runIfDue', async () => {
+  const jobId = testId()
+  let executed = false
+
+  const jobs = [{
+    id: jobId,
+    interval: 60000,
+    preRun: async () => false,
+    run: async () => { executed = true }
+  }]
+
+  try {
+    const result = await runAllDue(jobs)
+    assert.not.ok(executed, 'should not execute')
+    // preRun skip should appear in skipped (not ran)
+    assert.not.ok(result.ran.includes(jobId), 'should not be in ran')
+  } finally {
+    await cleanupTestEntry(jobId)
+  }
+})
+
 test.run()

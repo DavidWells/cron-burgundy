@@ -175,20 +175,30 @@ function cronToCalendarInterval(cronExpr) {
  * @param {import('./scheduler.js').Job} job
  * @param {string} jobFileDir - directory containing the job file (used as WorkingDirectory)
  * @param {string|null} namespace
+ * @param {{ entryPoint?: string[] }} [options]
  * @returns {Object}
  */
-export function generateJobPlistConfig(job, jobFileDir, namespace = null) {
+export function generateJobPlistConfig(job, jobFileDir, namespace = null, options = {}) {
   // Validate job ID before generating plist
   validateJobId(job.id)
 
   const nodePath = getNodePath()
-  const cliPath = path.join(PROJECT_ROOT, 'bin', 'cli.js')
   const logDir = path.join(os.homedir(), '.cron-burgundy')
   const qualifiedId = qualifyJobId(job.id, namespace)
 
+  let programArgs
+  if (job.entryPoint) {
+    programArgs = [nodePath, ...job.entryPoint, qualifiedId]
+  } else if (options.entryPoint) {
+    programArgs = [nodePath, ...options.entryPoint, qualifiedId]
+  } else {
+    const cliPath = path.join(PROJECT_ROOT, 'bin', 'cli.js')
+    programArgs = [nodePath, cliPath, 'run', '--scheduled', qualifiedId]
+  }
+
   const config = {
     Label: getJobLabel(job.id, namespace),
-    ProgramArguments: [nodePath, cliPath, 'run', '--scheduled', qualifiedId],
+    ProgramArguments: programArgs,
     StandardOutPath: path.join(logDir, 'runner.log'),
     StandardErrorPath: path.join(logDir, 'runner.error.log'),
     WorkingDirectory: jobFileDir,
@@ -262,14 +272,15 @@ function unloadPlist(plistPath) {
  * @param {import('./scheduler.js').Job} job
  * @param {string} projectPath
  * @param {string|null} namespace
+ * @param {{ entryPoint?: string[] }} [options]
  * @returns {Promise<'installed'|'unchanged'>}
  */
-export async function installJob(job, projectPath, namespace = null) {
+export async function installJob(job, projectPath, namespace = null, options = {}) {
   requireMacOS()
   await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
 
   const plistPath = getJobPlistPath(job.id, namespace)
-  const config = generateJobPlistConfig(job, projectPath, namespace)
+  const config = generateJobPlistConfig(job, projectPath, namespace, options)
   const xml = plist.build(config)
 
   // Check if plist already exists and is identical
@@ -421,8 +432,9 @@ export async function uninstallWakeChecker() {
  * @param {import('./scheduler.js').Job[]} jobs
  * @param {string} projectPath
  * @param {string|null} namespace
+ * @param {{ entryPoint?: string[] }} [options]
  */
-export async function sync(jobs, projectPath, namespace = null) {
+export async function sync(jobs, projectPath, namespace = null, options = {}) {
   const { isEnabled } = await import('./scheduler.js')
 
   const nsLabel = namespace ? ` [${namespace}]` : ''
@@ -437,7 +449,7 @@ export async function sync(jobs, projectPath, namespace = null) {
   const unchanged = []
 
   for (const job of enabled) {
-    const result = await installJob(job, projectPath, namespace)
+    const result = await installJob(job, projectPath, namespace, options)
     if (result === 'installed') {
       installed.push(job)
     } else {

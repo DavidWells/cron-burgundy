@@ -24,7 +24,14 @@ import { normalizeSchedule } from './cron-parser.js'
  * @property {string} [schedule] - Cron expression or human-readable schedule (e.g., "0 9 * * *", "every 5 minutes", "weekdays")
  * @property {number} [interval] - Interval in milliseconds
  * @property {boolean} [enabled] - Whether job is enabled (default: true)
- * @property {(ctx: JobContext) => Promise<void>} run - Job function to execute
+ * @property {(ctx: JobContext) => Promise<void>} [run] - Job function to execute
+ * @property {string|string[]} [command] - Shell command to execute (alternative to run)
+ * @property {string} [cwd] - Working directory for command
+ * @property {Record<string, string>} [env] - Environment variables for command
+ * @property {number} [timeout] - Command timeout in ms (default: 300000)
+ * @property {string} [shell] - Shell to use for command (default: /bin/sh)
+ * @property {(ctx: JobContext) => Promise<boolean|void>} [preRun] - Pre-execution hook, return false to skip
+ * @property {string[]} [entryPoint] - Custom plist entry point args (overrides sync-level)
  */
 
 /**

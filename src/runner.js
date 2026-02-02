@@ -1,3 +1,4 @@
+import { execSync } from 'child_process'
 import { getLastRun, markRun, isPaused, isSuspended } from './state.js'
 import { shouldRun, isEnabled, getIntervalMs, getNextRun } from './scheduler.js'
 import { logRunner, logJob, createJobLogger, logJobSeparator, captureJobOutput, humanTime } from './logger.js'
@@ -20,6 +21,38 @@ function getStaleLockMs(job) {
     return Math.max(job.interval * 3, 30 * 1000) // 3x interval, min 30s
   }
   return DEFAULT_STALE_MS
+}
+
+/**
+ * Execute a shell command with options
+ * @param {string} cmd
+ * @param {{ cwd?: string, env?: Record<string, string>, timeout?: number, shell?: string }} [options]
+ */
+function execCommand(cmd, options = {}) {
+  const { cwd, env, timeout = 300000, shell = '/bin/sh' } = options
+  execSync(cmd, { cwd, env, timeout, shell, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+/**
+ * Execute a job's run function or shell command
+ * @param {Job} job
+ * @param {string} jobId
+ * @param {{ logger: any, utils: any, lastRun: Date|null }} ctx
+ */
+async function executeJob(job, jobId, ctx) {
+  if (job.run) {
+    await captureJobOutput(jobId, () => job.run(ctx))
+  } else if (job.command) {
+    const cmd = Array.isArray(job.command) ? job.command.join(' && ') : job.command
+    await captureJobOutput(jobId, () => execCommand(cmd, {
+      cwd: job.cwd,
+      env: job.env ? { ...process.env, ...job.env } : undefined,
+      timeout: job.timeout,
+      shell: job.shell
+    }))
+  } else {
+    throw new Error(`Job "${jobId}" has no run() function or command`)
+  }
 }
 
 /**
@@ -54,9 +87,18 @@ async function runIfDue(job) {
   const start = Date.now()
 
   try {
-    // Pass logger, utils, and lastRun to job - capture stdout to job log
     const logger = createJobLogger(jobId)
-    await captureJobOutput(jobId, () => job.run({ logger, utils, lastRun }))
+
+    // Pre-run check
+    if (job.preRun) {
+      const shouldProceed = await job.preRun({ logger, utils, lastRun })
+      if (shouldProceed === false) {
+        await logRunner('Skipped - preRun returned false', jobId)
+        return 'skipped'
+      }
+    }
+
+    await executeJob(job, jobId, { logger, utils, lastRun })
     await markRun(jobId)
     const duration = Date.now() - start
     await logRunner(`Completed in ${duration}ms`, jobId)
@@ -154,7 +196,16 @@ export async function runJobNow(job, options = {}) {
     const logger = createJobLogger(jobId)
     const lastRun = await getLastRun(jobId)
 
-    await captureJobOutput(jobId, () => job.run({ logger, utils, lastRun }))
+    // Pre-run check
+    if (job.preRun) {
+      const shouldProceed = await job.preRun({ logger, utils, lastRun })
+      if (shouldProceed === false) {
+        await logRunner('Skipped - preRun returned false', jobId)
+        return
+      }
+    }
+
+    await executeJob(job, jobId, { logger, utils, lastRun })
     const markOptions = options.scheduled && job.interval ? { interval: job.interval } : {}
     await markRun(jobId, markOptions)
     const duration = Date.now() - start
@@ -220,7 +271,7 @@ export async function checkMissed(jobs) {
         const start = Date.now()
         const logger = createJobLogger(jobId)
 
-        await captureJobOutput(jobId, () => job.run({ logger, utils, lastRun }))
+        await executeJob(job, jobId, { logger, utils, lastRun })
         await markRun(jobId)
         const duration = Date.now() - start
         await logRunner(`Completed in ${duration}ms`, jobId)

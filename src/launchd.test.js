@@ -384,4 +384,59 @@ test('resumeJob: returns not_installed if plist deleted while suspended', async 
   }
 })
 
+// ========================
+// entryPoint tests
+// ========================
+
+test('generateJobPlistConfig: default ProgramArguments uses cron-burgundy CLI', () => {
+  const job = { id: 'test-ep-default', interval: 60000 }
+  const config = generateJobPlistConfig(job, '/tmp', null)
+  const args = config.ProgramArguments
+  // Default: [nodePath, cliPath, 'run', '--scheduled', jobId]
+  assert.ok(args.length >= 4, 'should have at least 4 args')
+  assert.ok(args[1].includes('cron-burgundy/bin/cli.js'), 'should point to cron-burgundy CLI')
+  assert.equal(args[2], 'run')
+  assert.equal(args[3], '--scheduled')
+  assert.equal(args[4], 'test-ep-default')
+})
+
+test('generateJobPlistConfig: sync-level entryPoint overrides default', () => {
+  const job = { id: 'test-ep-sync', interval: 60000 }
+  const config = generateJobPlistConfig(job, '/tmp', null, {
+    entryPoint: ['/usr/local/bin/my-cli', 'cron', 'run-scheduled']
+  })
+  const args = config.ProgramArguments
+  // Should be: [nodePath, '/usr/local/bin/my-cli', 'cron', 'run-scheduled', 'test-ep-sync']
+  assert.equal(args[1], '/usr/local/bin/my-cli')
+  assert.equal(args[2], 'cron')
+  assert.equal(args[3], 'run-scheduled')
+  assert.equal(args[4], 'test-ep-sync')
+  assert.ok(!args.includes('--scheduled'), 'should not contain default --scheduled flag')
+})
+
+test('generateJobPlistConfig: job-level entryPoint overrides sync-level', () => {
+  const job = {
+    id: 'test-ep-job',
+    interval: 60000,
+    entryPoint: ['/usr/local/bin/job-cli', 'execute']
+  }
+  const config = generateJobPlistConfig(job, '/tmp', null, {
+    entryPoint: ['/usr/local/bin/sync-cli', 'run']
+  })
+  const args = config.ProgramArguments
+  // Job-level wins
+  assert.equal(args[1], '/usr/local/bin/job-cli')
+  assert.equal(args[2], 'execute')
+  assert.equal(args[3], 'test-ep-job')
+})
+
+test('generateJobPlistConfig: entryPoint with namespace appends qualified ID', () => {
+  const job = { id: 'tick', interval: 60000 }
+  const config = generateJobPlistConfig(job, '/tmp', 'pm', {
+    entryPoint: ['/path/to/pm-cli', 'cron', 'run-scheduled']
+  })
+  const args = config.ProgramArguments
+  assert.equal(args[args.length - 1], 'pm/tick', 'last arg should be qualified ID')
+})
+
 test.run()
