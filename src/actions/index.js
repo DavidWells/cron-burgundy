@@ -1,50 +1,17 @@
 /**
  * Utility actions for cron jobs
  */
-import { execSync, execFileSync } from 'child_process'
-
-/**
- * Escape a string for use in AppleScript double-quoted strings
- * @param {string} str
- * @returns {string}
- */
-function escapeAppleScript(str) {
-  return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-
-const sounds = [
-  'Ping',
-  'Pop',
-  'Blow',
-  'Glass',
-  'Frog',
-  'Submarine',
-  'Purr',
-  'Funk',
-  'Morse',
-  'Sosumi',
-  'Basso',
-  'Bottle',
-]
+import { speak as _speak, sound, toast } from 'action-burgundy'
 
 /**
  * Play a macOS system sound
- * @param {string} sound - Sound name (Ping, Pop, Blow, Glass, etc.)
+ * @param {string} name - Sound name (Ping, Pop, Blow, Glass, etc.)
  */
-export function playSound(sound = 'Ping') {
-  const isSystemSound = sounds.includes(sound)
-  if (isSystemSound) {
-    try {
-      execFileSync('afplay', [`/System/Library/Sounds/${sound}.aiff`])
-    } catch (err) {
-      console.log('Could not play sound:', err.message)
-    }
-  } else {
-    try {
-      execFileSync('say', [sound])
-    } catch (err) {
-      console.log('Could not speak:', err.message)
-    }
+export function playSound(name = 'Ping') {
+  try {
+    sound(name)
+  } catch (err) {
+    console.log('Could not play sound:', err.message)
   }
 }
 
@@ -54,7 +21,7 @@ export function playSound(sound = 'Ping') {
  */
 export function speak(text = 'Hello, world!') {
   try {
-    execFileSync('say', [text])
+    _speak(text)
   } catch (err) {
     console.log('Could not speak:', err.message)
   }
@@ -68,12 +35,10 @@ export function speak(text = 'Hello, world!') {
  */
 export function notify(title, message, options = {}) {
   try {
-    let script = `display notification "${escapeAppleScript(message)}" with title "${escapeAppleScript(title)}"`
-    if (options.sound) {
-      const soundName = typeof options.sound === 'string' ? options.sound : 'default'
-      script += ` sound name "${escapeAppleScript(soundName)}"`
-    }
-    execFileSync('osascript', ['-e', script])
+    const soundName = options.sound
+      ? (typeof options.sound === 'string' ? options.sound : 'default')
+      : undefined
+    toast({ title, message, sound: soundName })
   } catch (err) {
     console.log('Could not show notification:', err.message)
   }
