@@ -4,6 +4,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
+import { execSync } from 'child_process'
 
 const STATE_DIR = path.join(os.homedir(), '.cron-burgundy')
 const REGISTRY_FILE = path.join(STATE_DIR, 'registry.json')
@@ -206,7 +207,15 @@ export async function loadJobsFromFile(filePath, namespace = null) {
     const jobs = mod.jobs || mod.default?.jobs || []
     return { file: filePath, namespace, jobs }
   } catch (err) {
-    return { file: filePath, namespace, jobs: [], error: err.message }
+    const e = /** @type {Error} */ (err)
+    // Notify user of broken job file
+    try {
+      const msg = `Failed to load: ${path.basename(filePath)}`
+      execSync(`osascript -e 'display notification "${msg}" with title "cron-burgundy" sound name "Basso"'`)
+    } catch {
+      // Ignore notification errors
+    }
+    return { file: filePath, namespace, jobs: [], error: e.message }
   }
 }
 

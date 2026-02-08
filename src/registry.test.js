@@ -3,7 +3,9 @@
  */
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
+import fs from 'fs/promises'
 import path from 'path'
+import os from 'os'
 import { fileURLToPath } from 'url'
 import { loadJobsFromFile, qualifyJobId, parseQualifiedId } from './registry.js'
 
@@ -61,6 +63,45 @@ test('parseQualifiedId: roundtrip with qualifyJobId', () => {
   const parsed = parseQualifiedId(qualified)
   assert.equal(parsed.namespace, 'pm')
   assert.equal(parsed.jobId, 'tick')
+})
+
+// Load failure tests
+test('loadJobsFromFile: returns error for broken import', async () => {
+  const tmpFile = path.join(os.tmpdir(), `test-broken-${Date.now()}.js`)
+  await fs.writeFile(tmpFile, `
+    import { doesNotExist } from './nonexistent.js'
+    export const jobs = []
+  `)
+
+  try {
+    const result = await loadJobsFromFile(tmpFile, 'testns')
+    assert.is(result.file, tmpFile)
+    assert.is(result.namespace, 'testns')
+    assert.is(result.jobs.length, 0)
+    assert.ok(result.error, 'should have error field')
+    assert.ok(result.error.includes('Cannot find module'), 'error should mention missing module')
+  } finally {
+    await fs.unlink(tmpFile)
+  }
+})
+
+test('loadJobsFromFile: returns error for syntax error', async () => {
+  const tmpFile = path.join(os.tmpdir(), `test-syntax-${Date.now()}.js`)
+  await fs.writeFile(tmpFile, `
+    export const jobs = [
+      { id: 'broken // missing closing brace
+    ]
+  `)
+
+  try {
+    const result = await loadJobsFromFile(tmpFile, null)
+    assert.is(result.file, tmpFile)
+    assert.is(result.namespace, null)
+    assert.is(result.jobs.length, 0)
+    assert.ok(result.error, 'should have error field')
+  } finally {
+    await fs.unlink(tmpFile)
+  }
 })
 
 test.run()
