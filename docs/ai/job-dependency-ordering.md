@@ -1,3 +1,12 @@
+---
+id: 01KFEME1GGQA65DP7STQZ7PYAD
+status: draft
+createdAt: 2026-01-20T21:19:38+00:00
+updatedAt: 2026-01-20T21:19:38+00:00
+origin: manual
+type: plan
+---
+
 # Job Dependency/Ordering Support
 
 **Purpose:** Brainstorm what job dependency and ordering support could look like in cron-burgundy.
