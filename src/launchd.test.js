@@ -5,7 +5,9 @@ import './test-fixtures/isolated-home.js'
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
 import fs from 'fs/promises'
-import { expandCronField, cronToCalendarInterval, generateJobPlistConfig, MIN_INTERVAL_MS, getJobLabel, parsePlistFilename, installJob, uninstallJob, suspendJob, resumeJob, getJobPlistPath } from './launchd.js'
+import path from 'path'
+import { expandCronField, cronToCalendarInterval, generateJobPlistConfig, MIN_INTERVAL_MS, getJobLabel, parsePlistFilename, installJob, uninstallJob, suspendJob, resumeJob, getJobPlistPath, generateWakeCheckerPlistConfig } from './launchd.js'
+import { NODE_BIN } from './node-runtime.js'
 import { isSuspended, clearSuspended } from './state.js'
 
 // expandCronField tests
@@ -181,6 +183,18 @@ test('generateJobPlistConfig: includes PATH with node bin', () => {
   assert.ok(config.EnvironmentVariables)
   assert.ok(config.EnvironmentVariables.PATH)
   assert.ok(config.EnvironmentVariables.PATH.includes('/usr/bin'))
+})
+
+test('generateJobPlistConfig: runs node through the stable NODE_BIN link', () => {
+  const config = generateJobPlistConfig({ id: 'test', interval: 60000 }, '/path/to/project')
+  assert.is(config.ProgramArguments[0], NODE_BIN)
+  assert.ok(config.EnvironmentVariables.PATH.startsWith(`${path.dirname(NODE_BIN)}:`))
+})
+
+test('generateWakeCheckerPlistConfig: runs node through the stable NODE_BIN link', () => {
+  const config = generateWakeCheckerPlistConfig()
+  assert.is(config.ProgramArguments[0], NODE_BIN)
+  assert.ok(config.EnvironmentVariables.PATH.startsWith(`${path.dirname(NODE_BIN)}:`))
 })
 
 // getJobLabel tests

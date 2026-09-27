@@ -6,7 +6,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-const TEST_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'cron-burgundy-test-'))
+// realpath so paths match fs.realpathSync results (macOS /var -> /private/var)
+const TEST_HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cron-burgundy-test-')))
 process.env.CRON_BURGUNDY_HOME = TEST_HOME
 
 process.on('exit', () => {

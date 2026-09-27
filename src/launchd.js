@@ -9,6 +9,7 @@ import { clearLock } from './lock.js'
 import { resume, isSuspended, markSuspended, clearSuspended } from './state.js'
 import { qualifyJobId, validateJobId } from './registry.js'
 import { CRON_BURGUNDY_DIR } from './paths.js'
+import { NODE_BIN, updateNodeLink } from './node-runtime.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, '..')
@@ -30,18 +31,6 @@ const LAUNCH_AGENTS_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents')
 // launchd limits (Apple enforces 10 second minimum for StartInterval)
 const MIN_INTERVAL_SECONDS = 10
 const MIN_INTERVAL_MS = MIN_INTERVAL_SECONDS * 1000
-
-/**
- * Get the path to the node binary
- * @returns {string}
- */
-function getNodePath() {
-  try {
-    return execSync('which node', { encoding: 'utf8' }).trim()
-  } catch {
-    return '/usr/local/bin/node'
-  }
-}
 
 /**
  * Get launchd label for a job
@@ -183,7 +172,7 @@ export function generateJobPlistConfig(job, jobFileDir, namespace = null, option
   // Validate job ID before generating plist
   validateJobId(job.id)
 
-  const nodePath = getNodePath()
+  const nodePath = NODE_BIN
   const logDir = CRON_BURGUNDY_DIR
   const qualifiedId = qualifyJobId(job.id, namespace)
 
@@ -227,7 +216,7 @@ export function generateJobPlistConfig(job, jobFileDir, namespace = null, option
  * @returns {Object}
  */
 export function generateWakeCheckerPlistConfig() {
-  const nodePath = getNodePath()
+  const nodePath = NODE_BIN
   const cliPath = path.join(PROJECT_ROOT, 'bin', 'cli.js')
   const logDir = CRON_BURGUNDY_DIR
 
@@ -279,6 +268,7 @@ function unloadPlist(plistPath) {
 export async function installJob(job, projectPath, namespace = null, options = {}) {
   requireMacOS()
   await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
+  await updateNodeLink()
 
   const plistPath = getJobPlistPath(job.id, namespace)
   const config = generateJobPlistConfig(job, projectPath, namespace, options)
@@ -399,6 +389,7 @@ export async function resumeJob(jobId, options = {}) {
 export async function installWakeChecker() {
   requireMacOS()
   await fs.mkdir(LAUNCH_AGENTS_DIR, { recursive: true })
+  await updateNodeLink()
 
   const plistPath = getWakeCheckerPlistPath()
   const config = generateWakeCheckerPlistConfig()

@@ -16,6 +16,7 @@ import { spawn } from 'child_process'
 import { readRunnerLog, readJobLog, clearRunnerLog, clearJobLog, clearAllJobLogs, listLogFiles, colorizeLine, logRunner, RUNNER_LOG, JOBS_LOG_DIR } from '../src/logger.js'
 import { getRegistry, registerFile, unregisterFile, loadAllJobs, findJob, getAllJobsFlat, qualifyJobId, getNamespace, findJobsByNamespace } from '../src/registry.js'
 import { clearStaleLock } from '../src/lock.js'
+import { NODE_LINK, NODE_BIN } from '../src/node-runtime.js'
 import * as p from '@clack/prompts'
 import { createRequire } from 'module'
 
@@ -722,6 +723,18 @@ program
   .description('Check installed launchd plists')
   .action(async () => {
     const plists = await listInstalledPlists()
+
+    let nodeTarget = null
+    try {
+      nodeTarget = fs.readlinkSync(NODE_LINK)
+    } catch {}
+    if (!nodeTarget) {
+      console.log(`✗ Node link missing: ${NODE_LINK} (run: cron-burgundy sync)`)
+    } else if (!fs.existsSync(NODE_BIN)) {
+      console.log(`✗ Node link broken: ${NODE_LINK} -> ${nodeTarget} (run: cron-burgundy sync)`)
+    } else {
+      console.log(`Node: ${NODE_LINK} -> ${nodeTarget}`)
+    }
 
     if (plists.length > 0) {
       console.log('\n=== Installed Plists ===\n')
