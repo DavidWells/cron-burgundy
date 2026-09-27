@@ -19,7 +19,7 @@ npm test
 - **src/state.js** - Job state persistence (last run times, pause status)
 - **src/lock.js** - File-based locking for concurrent job execution
 - **src/logger.js** - Logging with rotation support
-- **src/cron-parser.js** - Human-readable cron schedule normalization
+- **src/cron-parser.js** - Human-readable schedule normalization via @davidwells/human-cron, rejects non-launchd cron
 - **src/actions/index.js** - macOS utilities (notify, speak, playSound)
 
 ### CLI

@@ -153,6 +153,8 @@ The `run` function receives:
 
 ### Human-Readable (Recommended)
 
+Phrases are parsed by [`@davidwells/human-cron`](https://www.npmjs.com/package/@davidwells/human-cron) (see its README for the full list). Schedules must resolve to a 5-field numeric cron that launchd can run, so `@reboot`, `L`/`W`/`?`/`#`, day names (`MON-FRI`), and 6/7-field cron are rejected.
+
 ```javascript
 // Basic intervals
 schedule: 'every minute'
@@ -175,11 +177,20 @@ schedule: 'every 6 months'
 schedule: '5 minutes'
 schedule: '2 hours'
 schedule: '1 week'
+schedule: '15m'
+schedule: 'every five minutes'
+schedule: 'every other hour'
+schedule: 'every half hour'
+schedule: 'twice a day'      // midnight and noon
 
 // Specific times
 schedule: 'at 9:30'
 schedule: 'at 2:00 pm'
 schedule: 'at 14:15'
+schedule: '9am'
+schedule: 'daily at 9am'
+schedule: 'every day at noon'
+schedule: 'hourly at 30'     // minute 30 of every hour
 schedule: 'noon'
 schedule: 'midnight'
 schedule: 'morning'       // 9am
@@ -196,11 +207,16 @@ schedule: 'on monday,wednesday,friday at 8:00 am'
 schedule: 'on tuesday,thursday at 2:30 pm'
 schedule: 'on weekdays at 8:30 am'
 schedule: 'on weekends at 10:00 am'
+schedule: 'weekdays at 9:30'
+schedule: 'fridays at 5pm'
+schedule: 'mon-fri'
+schedule: 'monday and friday at 9'
 
 // Day of month
 schedule: 'on 1st of month at 9:00'
 schedule: 'on 15th of month at 12:00'
 schedule: 'on 31st of month at 2:00 pm'
+schedule: 'on the 1st and 15th'
 schedule: 'first day of month'
 schedule: 'middle of month'
 
@@ -209,8 +225,6 @@ schedule: 'business hours'   // 9am-5pm weekdays
 
 // Special
 schedule: 'never'            // Feb 30th (never runs)
-schedule: 'reboot'           // @reboot
-schedule: 'startup'          // @reboot
 ```
 
 ### Standard Cron
