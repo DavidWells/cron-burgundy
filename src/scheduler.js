@@ -1,6 +1,6 @@
 import { Cron } from 'croner'
 import cronstrue from 'cronstrue'
-import { normalizeSchedule } from './cron-parser.js'
+import { normalizeSchedule } from './cron-parser.cjs'
 
 /**
  * @typedef {{ log: (msg: string) => Promise<void> }} JobLogger

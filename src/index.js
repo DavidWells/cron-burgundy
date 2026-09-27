@@ -25,7 +25,7 @@
 export { runAllDue, runJobNow } from './runner.js'
 export { getState, getLastRun, markRun, pause, resume, isPaused, getPauseStatus, isSuspended, getSuspendedAt, markSuspended, clearSuspended, getSuspendedJobs } from './state.js'
 export { shouldRun, getIntervalMs, getNextRun, formatInterval } from './scheduler.js'
-export { normalizeSchedule, isValidSchedule } from './cron-parser.js'
+export { normalizeSchedule, isValidSchedule } from './cron-parser.cjs'
 export { installJob, uninstallJob, suspendJob, resumeJob, sync, uninstallAll, listInstalledPlists, generateJobPlistConfig, getJobLabel, getJobPlistPath, parsePlistFilename, MIN_INTERVAL_MS } from './launchd.js'
 export { registerFile, unregisterFile, getRegistry, loadAllJobs, findJob, getAllJobsFlat, qualifyJobId, parseQualifiedId, getNamespace, getAllNamespaces, findJobsByNamespace, validateJobId } from './registry.js'
 

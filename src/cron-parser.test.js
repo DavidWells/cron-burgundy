@@ -1,9 +1,9 @@
 /**
- * Tests for cron-parser.js
+ * Tests for cron-parser.cjs
  */
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
-import { normalizeSchedule, isValidSchedule } from './cron-parser.js'
+import { normalizeSchedule, isValidSchedule } from './cron-parser.cjs'
 
 test('normalizeSchedule: basic patterns', () => {
   assert.equal(normalizeSchedule('every minute'), '* * * * *')

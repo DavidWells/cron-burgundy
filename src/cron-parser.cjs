@@ -1,8 +1,9 @@
 /**
  * Normalize job schedules (human-readable phrases or raw cron) into cron expressions launchd can run.
  * Phrase parsing is delegated to @davidwells/human-cron.
+ * CommonJS so CJS consumers (project-manager) can require() it on node versions without require(esm).
  */
-import humanCron from '@davidwells/human-cron'
+const humanCron = require('@davidwells/human-cron')
 
 // launchd StartCalendarInterval only takes numeric fields: no @macros, names, or Quartz ?/L/W/# specials
 const LAUNCHD_FIELD = /^[\d*,\-/]+$/
@@ -13,7 +14,7 @@ const LAUNCHD_FIELD = /^[\d*,\-/]+$/
  * @returns {string} Standard 5-field cron expression
  * @throws if the schedule is unrecognized or can't be expressed as a launchd calendar interval
  */
-export function normalizeSchedule(schedule) {
+function normalizeSchedule(schedule) {
   const cron = humanCron.parseCron(schedule)
   const parts = cron.split(/\s+/)
   if (parts.length !== 5 || !parts.every(part => LAUNCHD_FIELD.test(part))) {
@@ -27,11 +28,16 @@ export function normalizeSchedule(schedule) {
  * @param {unknown} schedule
  * @returns {boolean}
  */
-export function isValidSchedule(schedule) {
+function isValidSchedule(schedule) {
   try {
     normalizeSchedule(/** @type {string} */ (schedule))
     return true
   } catch {
     return false
   }
+}
+
+module.exports = {
+  normalizeSchedule,
+  isValidSchedule,
 }
