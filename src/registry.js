@@ -3,10 +3,10 @@
  */
 import fs from 'fs/promises'
 import path from 'path'
-import os from 'os'
 import { execSync } from 'child_process'
+import { CRON_BURGUNDY_DIR } from './paths.js'
 
-const STATE_DIR = path.join(os.homedir(), '.cron-burgundy')
+const STATE_DIR = CRON_BURGUNDY_DIR
 const REGISTRY_FILE = path.join(STATE_DIR, 'registry.json')
 
 /**

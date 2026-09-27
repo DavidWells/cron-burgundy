@@ -1,6 +1,7 @@
 /**
- * Tests for state.js - uses real state file with unique test job IDs
+ * Tests for state.js - uses an isolated state file with unique test job IDs
  */
+import './test-fixtures/isolated-home.js'
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
 import fs from 'fs/promises'

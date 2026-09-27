@@ -1,6 +1,7 @@
 /**
- * Tests for lock.js - uses real filesystem with unique test job IDs
+ * Tests for lock.js - uses real filesystem (isolated CRON_BURGUNDY_HOME) with unique test job IDs
  */
+import './test-fixtures/isolated-home.js'
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
 import { acquireLock, releaseLock, withLock, clearLock } from './lock.js'

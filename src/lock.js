@@ -1,10 +1,10 @@
 import fs from 'fs/promises'
 import fsSync from 'fs'
 import path from 'path'
-import os from 'os'
 import { onAnyExit } from '@davidwells/graceful-exit'
+import { CRON_BURGUNDY_DIR } from './paths.js'
 
-const LOCK_DIR = path.join(os.homedir(), '.cron-burgundy', 'locks')
+const LOCK_DIR = path.join(CRON_BURGUNDY_DIR, 'locks')
 const DEFAULT_STALE_LOCK_MS = 60 * 60 * 1000 // 1 hour default
 
 // Track active locks for cleanup on exit

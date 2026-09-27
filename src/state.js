@@ -1,8 +1,8 @@
 import fs from 'fs/promises'
 import path from 'path'
-import os from 'os'
+import { CRON_BURGUNDY_DIR } from './paths.js'
 
-const STATE_DIR = path.join(os.homedir(), '.cron-burgundy')
+const STATE_DIR = CRON_BURGUNDY_DIR
 const STATE_FILE = path.join(STATE_DIR, 'state.json')
 const STATE_LOCK_FILE = path.join(STATE_DIR, 'state.lock')
 const LOCK_TIMEOUT_MS = 10000 // 10 seconds max wait for lock

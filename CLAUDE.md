@@ -19,6 +19,7 @@ npm test
 - **src/state.js** - Job state persistence (last run times, pause status)
 - **src/lock.js** - File-based locking for concurrent job execution
 - **src/logger.js** - Logging with rotation support
+- **src/paths.js** - State/log dir (`~/.cron-burgundy`, overridable via `CRON_BURGUNDY_HOME`)
 - **src/cron-parser.cjs** - Human-readable schedule normalization via @davidwells/human-cron, rejects non-launchd cron
 - **src/actions/index.js** - macOS utilities (notify, speak, playSound)
 
@@ -55,6 +56,8 @@ npm run test:watch # Watch mode
 ```
 
 Tests use [uvu](https://github.com/lukeed/uvu) - fast, lightweight test runner.
+
+Tests touching state, logs, locks, or the registry must `import './test-fixtures/isolated-home.js'` first so they write to a temp `CRON_BURGUNDY_HOME`, not the real `~/.cron-burgundy`.
 
 ## Code Style
 - ES modules (import/export)

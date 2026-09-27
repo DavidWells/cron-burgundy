@@ -8,6 +8,7 @@ import { normalizeSchedule } from './cron-parser.cjs'
 import { clearLock } from './lock.js'
 import { resume, isSuspended, markSuspended, clearSuspended } from './state.js'
 import { qualifyJobId, validateJobId } from './registry.js'
+import { CRON_BURGUNDY_DIR } from './paths.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, '..')
@@ -183,7 +184,7 @@ export function generateJobPlistConfig(job, jobFileDir, namespace = null, option
   validateJobId(job.id)
 
   const nodePath = getNodePath()
-  const logDir = path.join(os.homedir(), '.cron-burgundy')
+  const logDir = CRON_BURGUNDY_DIR
   const qualifiedId = qualifyJobId(job.id, namespace)
 
   let programArgs
@@ -228,7 +229,7 @@ export function generateJobPlistConfig(job, jobFileDir, namespace = null, option
 export function generateWakeCheckerPlistConfig() {
   const nodePath = getNodePath()
   const cliPath = path.join(PROJECT_ROOT, 'bin', 'cli.js')
-  const logDir = path.join(os.homedir(), '.cron-burgundy')
+  const logDir = CRON_BURGUNDY_DIR
 
   return {
     Label: WAKE_CHECKER_LABEL,

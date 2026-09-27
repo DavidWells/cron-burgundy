@@ -1,8 +1,8 @@
 import fs from 'fs/promises'
 import path from 'path'
-import os from 'os'
+import { CRON_BURGUNDY_DIR } from './paths.js'
 
-const LOG_DIR = path.join(os.homedir(), '.cron-burgundy')
+const LOG_DIR = CRON_BURGUNDY_DIR
 const JOBS_LOG_DIR = path.join(LOG_DIR, 'jobs')
 const RUNNER_LOG = path.join(LOG_DIR, 'runner.log')
 

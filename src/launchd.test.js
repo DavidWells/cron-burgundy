@@ -1,6 +1,7 @@
 /**
  * Tests for launchd.js cron-to-plist conversion
  */
+import './test-fixtures/isolated-home.js'
 import { test } from 'uvu'
 import * as assert from 'uvu/assert'
 import fs from 'fs/promises'
